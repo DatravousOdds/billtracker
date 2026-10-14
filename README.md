@@ -1,0 +1,76 @@
+# Bill Split
+
+A bill tracker for two partners. It splits shared bills by each partner's share of combined income and syncs live between both phones through Supabase.
+
+**Stack:** Vite + TypeScript (no framework) · plain CSS · Supabase (Postgres, Auth, Realtime)
+
+## What it does
+
+- **This week:** each partner's amount for the week, bills due, overdue bills, and approvals waiting for you.
+- **Payment reminders:** any bill that's due today or overdue shows up at the top of This week with a *Confirm paid* button, and counts toward the badge on the tab. The app never moves money; it only records what you confirm (autopay bills are skipped).
+- **Smoothed weekly amounts (default):** shared monthly bills × 12 ÷ 52 every week, plus any one-time bills due that week. Each partner deposits their income share into a shared bill account. You can switch to *pay as due* in Settings.
+- **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, which uses a rolling 3-month average. The window can be changed in Settings.
+- **Personal bills:** all bills start shared. Either partner can request to make a bill personal (or shared again), and the other partner must approve. The database enforces this, so it can't be skipped.
+- **Both phones can edit everything,** and changes appear on the other phone right away.
+- **History:** payments, deposits, a running balance (who has covered more than their share), and an activity log of who changed what.
+
+## Try the demo (no setup)
+
+```bash
+npm install
+npm run build:demo        # → dist-demo/index.html, open it in a browser
+```
+
+The demo uses sample data in memory. Use the purple bar to switch between Alex's and Sam's phones.
+
+## Set up for real
+
+1. **Create a Supabase project** (the free tier is fine) at https://supabase.com.
+2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**.
+3. **Auth settings:** under **Authentication → Providers → Email**, email sign-up is on by default. If "Confirm email" is on, each of you clicks the link in your inbox before signing in. Turn it off if you don't want that step.
+4. **Add your keys:** copy `.env.example` to `.env` and fill in the values from **Project Settings → API** (Project URL and the `anon` public key).
+5. **Run it:**
+   ```bash
+   npm install
+   npm run dev          # opens on your network, so you can test from your phone on the same Wi-Fi
+   ```
+6. **Get both of you in:** one partner creates an account and chooses **Start a household**. The other creates an account, chooses **Join**, and enters the 6-letter invite code shown in Settings.
+
+## Deploy so it works anywhere
+
+`npm run build` creates a static site in `dist/`. Host it on Netlify, Vercel, Cloudflare Pages, or GitHub Pages, and set the two `VITE_SUPABASE_*` environment variables in the host's settings. Then, in Supabase, go to **Authentication → URL Configuration** and add your site URL.
+
+On each phone, open the site and choose **Add to Home Screen** so it opens like an app.
+
+## Project layout
+
+```
+supabase/schema.sql      tables, row-level security, approval + invite functions, activity-log triggers, realtime
+src/logic/               pure functions (unit-tested): money, dates, recurrence, income, split, ledger
+src/store.ts             loads household data, realtime sync, all reads/writes (+ demo-mode versions)
+src/views/               one file per screen
+src/ui/                  small DOM helpers and shared list rows
+src/demo.ts              sample data for the demo build
+tests/logic.test.ts      npm test
+```
+
+## How the numbers work
+
+| Thing | Rule |
+|---|---|
+| Monthly income (fixed) | paycheck × (52 weekly, 26 biweekly, 24 twice-a-month, 12 monthly) ÷ 12 |
+| Monthly income (logged) | total of paychecks in the last N months ÷ N (falls back to the usual paycheck if none are logged) |
+| Income share | your monthly income ÷ combined monthly income (50/50 if neither has income entered) |
+| Bill per month | weekly × 52/12 · biweekly × 26/12 · monthly × 1 · quarterly ÷ 3 · yearly ÷ 12 · one-time counts only in the week it's due |
+| Smoothed weekly | shared bills per month × 12 ÷ 52 + one-time shared bills due this week |
+| Running balance | (deposits + shared bills you paid directly) − your income share of everything both of you put in. The two balances always add up to $0. |
+
+Money is stored as whole cents, so totals never drift. Splits are rounded so the two parts always add up exactly to the total.
+
+## Security notes
+
+- Row-level security limits every query to your own household. Nobody else can read or change your data.
+- A household is capped at two partners.
+- Deposits are per person: you can only record or remove your own. Your partner's deposits are visible but read-only.
+- Who pays a bill can only change through `decide_request()`, called by the partner who *didn't* make the request.
+- The invite code and household ID can't be edited from the app.

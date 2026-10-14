@@ -1,0 +1,25 @@
+{
+  "name": "bill-split",
+  "version": "1.0.0",
+  "description": "Bill tracker that splits shared bills by income between two partners",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host",
+    "test": "vitest run",
+    "typecheck": "tsc",
+    "build:demo": "tsc && vite build --mode demo"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^5.0.3"
+  },
+  "private": true,
+  "type": "module"
+}
