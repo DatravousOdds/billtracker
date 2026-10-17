@@ -17,11 +17,11 @@ export function incomeView(): HTMLElement {
     const n = paychecksNeeded(m.pay_frequency);
     const latest = `latest ${n === 1 ? 'paycheck' : `${n} paychecks`}`;
     const sourceNote = income.source === 'auto'
-      ? `Your ${latest} added up (one month's worth when paid ${FREQUENCY_LABEL[m.pay_frequency].toLowerCase()})`
+      ? `${n === 1 ? 'Latest paycheck' : `Latest ${n} paychecks added up`} (one month's worth when paid ${FREQUENCY_LABEL[m.pay_frequency].toLowerCase()})`
       : income.source === 'per_paycheck'
-        ? `Average of your ${latest} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`
+        ? `Average of the ${latest} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`
         : income.source === 'fallback'
-          ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use your average (${income.paychecksUsed} so far) — using usual pay below`
+          ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use the average (${income.paychecksUsed} so far) — using usual pay below`
           : `${esc(formatCents(m.pay_amount_cents))} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
 
     return `
