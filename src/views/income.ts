@@ -6,9 +6,31 @@ import { addPaycheck, deletePaycheck, getState, shares, updateMember } from '../
 import { busy, esc, html, on, toast } from '../ui/dom';
 import { pct } from '../ui/parts';
 
+const GUIDE = [
+  { target: 'mode', title: 'Choose how you’re paid', body: 'Pick <strong>Fixed</strong> if your paycheck is about the same every time. Pick <strong>Log each paycheck</strong> if it changes, like hourly pay, tips or commission.' },
+  { target: 'amount', title: 'Enter one paycheck', body: 'Type your take-home pay from <strong>one</strong> paycheck, after taxes, like <strong>1,250.00</strong>. Don’t enter your yearly salary.' },
+  { target: 'frequency', title: 'Pick how often you’re paid', body: 'Weekly, every two weeks and so on. The app uses this to work out your monthly income.' },
+  { target: 'save', title: 'Tap Save pay', body: 'Your share of the bills updates right away. After that, add your bills on the <a href="#/bills">Bills</a> tab.' },
+];
+const GUIDE_KEY = 'incomeGuideSkipped';
+// Lives at module level so realtime re-renders don't send the user back to step 1.
+let guideStep = 0;
+
+function guideSkipped(): boolean {
+  try { return localStorage.getItem(GUIDE_KEY) === '1'; } catch { return false; }
+}
+function setGuideSkipped(skipped: boolean) {
+  try { skipped ? localStorage.setItem(GUIDE_KEY, '1') : localStorage.removeItem(GUIDE_KEY); } catch { /* private mode: guide just reappears */ }
+}
+
 export function incomeView(): HTMLElement {
   const s = getState();
   const sh = shares();
+
+  // Same "no income yet" test the dashboard uses, so the two screens agree.
+  const needsPay = sh.find((x) => x.member.user_id === s.userId)?.income.monthlyCents === 0;
+  const showGuide = needsPay && !guideSkipped();
+  const step = GUIDE[guideStep];
   const win = s.household.income_window_months;
 
   const cards = sh.map(({ member: m, income, ratio }) => {
@@ -19,6 +41,7 @@ export function incomeView(): HTMLElement {
       : income.source === 'fallback'
         ? 'No paychecks logged in the window yet — using usual pay below'
         : `${esc(formatCents(m.pay_amount_cents))} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
+    const hl = (key: string) => showGuide && m.user_id === s.userId && step.target === key ? ' guide-on' : '';
 
     return `
       <div class="card member" data-member="${esc(m.user_id)}">
@@ -29,24 +52,24 @@ export function incomeView(): HTMLElement {
         <div class="person-amt">${esc(formatCents(Math.round(income.monthlyCents)))}<span class="muted small"> / month</span></div>
         <p class="muted small">${sourceNote}</p>
 
-        <div class="seg full" role="group" aria-label="Income mode">
+        <div class="seg full${hl('mode')}" role="group" aria-label="Income mode">
           <button class="${!perPay ? 'on' : ''}" data-action="mode" data-mode="fixed">Fixed</button>
           <button class="${perPay ? 'on' : ''}" data-action="mode" data-mode="per_paycheck">Log each paycheck</button>
         </div>
 
         <form class="form pay-form" data-form="usual">
           <div class="grid2">
-            <label>${perPay ? 'Usual paycheck (backup)' : 'Paycheck amount'}
-              <input name="amount" inputmode="decimal" value="${esc(centsToInput(m.pay_amount_cents))}">
+            <label class="${hl('amount')}">${perPay ? 'Usual paycheck (backup)' : 'Paycheck amount'}
+              <input name="amount" inputmode="decimal" placeholder="1,250.00" value="${esc(centsToInput(m.pay_amount_cents))}">
             </label>
-            <label>Paid
+            <label class="${hl('frequency')}">Paid
               <select name="frequency">
                 ${(Object.keys(FREQUENCY_LABEL) as PayFrequency[]).map((f) =>
                   `<option value="${f}" ${m.pay_frequency === f ? 'selected' : ''}>${FREQUENCY_LABEL[f]}</option>`).join('')}
               </select>
             </label>
           </div>
-          <button class="btn ghost sm" type="submit">Save pay</button>
+          <button class="btn ghost sm${hl('save')}" type="submit">Save pay</button>
         </form>
 
         ${perPay ? `
@@ -73,6 +96,26 @@ export function incomeView(): HTMLElement {
       </div>`;
   }).join('');
 
+  const guide = showGuide ? `
+    <div class="card request guide" aria-live="polite">
+      <div class="guide-head">
+        <span class="muted small">Set up your income · Step ${guideStep + 1} of ${GUIDE.length}</span>
+        <button class="btn ghost sm" data-action="guide-skip">Skip guide</button>
+      </div>
+      <h2>${step.title}</h2>
+      <p>${step.body}</p>
+      <div class="guide-nav">
+        ${guideStep > 0 ? '<button class="btn ghost sm" data-action="guide-back">Back</button>' : ''}
+        ${guideStep < GUIDE.length - 1
+          ? '<button class="btn primary sm" data-action="guide-next">Next</button>'
+          : '<button class="btn primary sm" data-action="guide-skip">Got it</button>'}
+      </div>
+    </div>` : needsPay ? `
+    <div class="card request">
+      <strong>One last step:</strong> enter your usual paycheck below and tap <em>Save pay</em>. It sets your share of the bills.
+      <button class="btn ghost sm" data-action="guide-show">Show me how</button>
+    </div>` : '';
+
   const el = html(`
     <section class="view">
       <div class="view-head">
@@ -81,13 +124,25 @@ export function incomeView(): HTMLElement {
           <p class="muted small">Each of you pays the same percentage of shared bills as your share of combined income.</p>
         </div>
       </div>
+      ${guide}
       <div class="stack">${cards}</div>
       ${s.members.length < 2 ? `<p class="empty">Your partner's income shows up here once they join with code <strong>${esc(s.household.invite_code)}</strong>.</p>` : ''}
     </section>`);
 
   const memberOf = (node: HTMLElement) => node.closest<HTMLElement>('[data-member]')!.dataset.member!;
 
+  const goTo = (i: number) => {
+    guideStep = i;
+    const next = incomeView();
+    el.replaceWith(next);
+    next.querySelector('.guide-on')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+
   on(el, {
+    'guide-next': () => goTo(guideStep + 1),
+    'guide-back': () => goTo(guideStep - 1),
+    'guide-skip': () => { setGuideSkipped(true); goTo(0); },
+    'guide-show': () => { setGuideSkipped(false); goTo(0); },
     mode: (b) => busy(b, async () => {
       await updateMember(memberOf(b), { income_mode: b.dataset.mode as IncomeMode });
       toast(b.dataset.mode === 'fixed' ? 'Using fixed income' : 'Now logging each paycheck');

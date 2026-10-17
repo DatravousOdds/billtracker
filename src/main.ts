@@ -119,6 +119,8 @@ async function route(userId: string | null) {
     if (!householdId) {
       app.replaceChildren(onboardingView(() => {
         activeUser = undefined;
+        // The split depends on income, so new members set theirs first.
+        location.hash = '#/income';
         route(userId);
       }));
       return;
