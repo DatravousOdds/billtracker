@@ -27,7 +27,10 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
 
 1. **Create a Supabase project** (the free tier is fine) at https://supabase.com.
 2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**.
-3. **Auth settings:** under **Authentication → Providers → Email**, email sign-up is on by default. If "Confirm email" is on, each of you clicks the link in your inbox before signing in. Turn it off if you don't want that step.
+3. **Auth settings:**
+   - **Send email through Resend.** Supabase's built-in email only reaches your own team's addresses and allows just a few emails an hour, so your partner's confirmation email may never arrive. In [Resend](https://resend.com), verify a domain you own (**Domains → Add domain**) and create an API key. Then in Supabase go to **Authentication → Emails → SMTP Settings**, turn on custom SMTP, and enter: host `smtp.resend.com`, port `465`, username `resend`, password = your Resend API key, and a sender address on your verified domain (e.g. `bills@yourdomain.com`).
+   - **Redirect URLs.** Under **Authentication → URL Configuration**, set **Site URL** to where the app runs (for now `http://localhost:5173`) and add it, plus any deployed URL, to **Redirect URLs**. The confirmation link sends people back there.
+   - Email sign-up and "Confirm email" are on by default. Signing in before confirming sends a fresh link.
 4. **Add your keys:** copy `.env.example` to `.env` and fill in the values from **Project Settings → API** (Project URL and the `anon` public key).
 5. **Run it:**
    ```bash
@@ -41,6 +44,22 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
 `npm run build` creates a static site in `dist/`. Host it on Netlify, Vercel, Cloudflare Pages, or GitHub Pages, and set the two `VITE_SUPABASE_*` environment variables in the host's settings. Then, in Supabase, go to **Authentication → URL Configuration** and add your site URL.
 
 On each phone, open the site and choose **Add to Home Screen** so it opens like an app.
+
+## iPhone app (Capacitor)
+
+The same code runs as a native iPhone app. The `ios/` folder is the Xcode project.
+
+After changing the code, run `npm run ios`. It builds the app, copies it into `ios/`, and opens Xcode.
+
+**First time in Xcode:** select the **App** target → **Signing & Capabilities** → choose your Team (needs an Apple Developer account for TestFlight). Bundle ID is `com.datravousodds.billsplit`.
+
+**Ship to TestFlight:**
+1. In App Store Connect (appstoreconnect.apple.com), **Apps → + → New App**, platform iOS, bundle ID `com.datravousodds.billsplit`.
+2. In Xcode, set the run destination to **Any iOS Device (arm64)**, then **Product → Archive**.
+3. In the Organizer window that opens: **Distribute App → TestFlight & App Store → Distribute**.
+4. In App Store Connect → your app → **TestFlight**, add both of you as internal testers. Install the **TestFlight** app on each iPhone and accept the invite.
+
+Each upload needs a higher **Build** number (App target → General → Identity).
 
 ## Project layout
 

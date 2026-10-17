@@ -39,11 +39,20 @@ export function authView(): HTMLElement {
     const email = String(f.get('email')).trim();
     const password = String(f.get('password'));
     busy(submit, async () => {
+      // Send people back to this app (not Supabase's default Site URL) after they click the email link.
+      const emailRedirectTo = location.origin + location.pathname;
       if (mode === 'in') {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error?.code === 'email_not_confirmed') {
+          const { error: resendError } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo } });
+          if (resendError) throw resendError;
+          msg.hidden = false;
+          msg.textContent = `Confirm your email first. We sent a new link to ${email}.`;
+          return;
+        }
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo } });
         if (error) throw error;
         if (!data.session) {
           msg.hidden = false;

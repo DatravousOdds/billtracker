@@ -8,12 +8,16 @@
     "preview": "vite preview --host",
     "test": "vitest run",
     "typecheck": "tsc",
-    "build:demo": "tsc && vite build --mode demo"
+    "build:demo": "tsc && vite build --mode demo",
+    "ios": "npm run build && cap sync ios && cap open ios"
   },
   "dependencies": {
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
     "@supabase/supabase-js": "^2.117.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@electric-sql/pglite": "^0.5.8",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",

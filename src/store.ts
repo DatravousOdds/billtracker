@@ -56,7 +56,7 @@ export async function load(userId: string, householdId: string): Promise<void> {
     supabase.from('members').select('*').order('created_at'),
     supabase.from('bills').select('*').order('name'),
     supabase.from('payments').select('*'),
-    supabase.from('contributions').select('*').order('week_start', { ascending: false }),
+    supabase.from('contributions').select('*').order('week_start', { ascending: false }).order('created_at', { ascending: false }),
     supabase.from('paychecks').select('*').order('paid_on', { ascending: false }),
     supabase.from('bill_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('activity_log').select('id, actor, message, created_at').order('created_at', { ascending: false }).limit(200),

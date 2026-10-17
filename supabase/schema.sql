@@ -144,7 +144,7 @@ $$;
 -- ---------------------------------------------------------------------
 
 create or replace function public.create_household(p_household_name text, p_display_name text)
-returns uuid language plpgsql security definer set search_path = public as $$
+returns uuid language plpgsql security definer set search_path = public, extensions as $$  -- Supabase installs pgcrypto (gen_random_bytes) in the extensions schema
 declare
   v_id   uuid;
   v_code text;

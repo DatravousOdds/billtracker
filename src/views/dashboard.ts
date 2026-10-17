@@ -51,6 +51,8 @@ export function dashboardView(): HTMLElement {
   const people = plan.perMember.map((p) => {
     const done = deposited(p.member.user_id);
     const isMe = p.member.user_id === s.userId;
+    // contributions are sorted newest first, so the first match is the partner's latest.
+    const last = !isMe && smoothed ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
     // Only you can confirm your own deposit; your partner's card just shows their status.
     const action = !smoothed ? ''
       : done >= p.sharedCents && p.sharedCents > 0 ? `<span class="pill paid">✓ Deposited</span>`
@@ -66,6 +68,7 @@ export function dashboardView(): HTMLElement {
         ${p.personalCents ? `<div class="muted small">+ ${esc(formatCents(p.personalCents))} personal bills this week</div>` : ''}
         ${done > 0 && done < p.sharedCents ? `<div class="muted small">${esc(formatCents(done))} deposited so far</div>` : ''}
         ${action}
+        ${last ? `<div class="muted small">Last deposit: ${esc(formatCents(last.amount_cents))} · week of ${esc(formatShort(last.week_start))}</div>` : ''}
       </div>`;
   }).join('');
 
