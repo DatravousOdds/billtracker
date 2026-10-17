@@ -111,8 +111,8 @@ Money is stored as whole cents, so totals never drift. Splits are rounded so the
 
 ## Security notes
 
-- Row-level security limits every query to your own household. Nobody else can read or change your data.
+- Row-level security limits every query to your own household. The only exception is accounts the app owner gives a staff role (`supabase/admin.sql`): **support** can read every household, and **admin** can read and change every household.
 - A household is capped at two partners.
-- Deposits are per person: you can only record or remove your own. Your partner's deposits are visible but read-only.
-- Who pays a bill can only change through `decide_request()`, called by the partner who *didn't* make the request.
+- Deposits are per person: you can only record or remove your own. Your partner's deposits are visible but read-only. Admins can correct any deposit.
+- Who pays a bill can only change through `decide_request()`, called by the partner who *didn't* make the request, or by an admin.
 - The invite code and household ID can't be edited from the app.

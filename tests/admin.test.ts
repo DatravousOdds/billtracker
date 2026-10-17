@@ -202,3 +202,13 @@ describe('leaving', () => {
     expect(await count('households where id = $1', [h.hid])).toBe(0);
   });
 });
+
+describe('admin.sql', () => {
+  it('refuses to install before leave.sql', async () => {
+    const fresh = await PGlite.create({ extensions: { pgcrypto } });
+    await fresh.exec(SUPABASE_STUB);
+    await fresh.exec(schemaSql);
+    await expect(fresh.exec(adminSql)).rejects.toThrow('Run supabase/leave.sql before admin.sql');
+    await fresh.close();
+  }, 60_000);
+});

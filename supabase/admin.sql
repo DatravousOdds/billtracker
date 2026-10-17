@@ -15,6 +15,16 @@
 begin;
 set local lock_timeout = '5s';
 
+-- plpgsql only resolves calls at run time, so without this the admin functions below
+-- would install fine and then fail on first use.
+do $$
+begin
+  if to_regprocedure('public.remove_member(uuid, text)') is null
+     or to_regprocedure('public.delete_household_data(uuid)') is null then
+    raise exception 'Run supabase/leave.sql before admin.sql';
+  end if;
+end $$;
+
 -- An earlier version of this file called the table "admins" (admin-only, no role column).
 do $$
 begin
