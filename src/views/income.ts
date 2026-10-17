@@ -1,7 +1,7 @@
 import { formatShort, todayISO } from '../logic/dates';
-import { FREQUENCY_LABEL, PER_YEAR } from '../logic/income';
+import { FREQUENCY_LABEL, PER_YEAR, paychecksNeeded } from '../logic/income';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import type { IncomeMode, PayFrequency } from '../types';
+import type { IncomeMode, PayFrequency, PaycheckAverage } from '../types';
 import { addPaycheck, deletePaycheck, getState, shares, updateMember } from '../store';
 import { busy, esc, html, on, toast } from '../ui/dom';
 import { pct } from '../ui/parts';
@@ -9,16 +9,20 @@ import { pct } from '../ui/parts';
 export function incomeView(): HTMLElement {
   const s = getState();
   const sh = shares();
-  const win = s.household.income_window_months;
 
   const cards = sh.map(({ member: m, income, ratio }) => {
     const checks = s.paychecks.filter((p) => p.member_id === m.user_id).slice(0, 8);
     const perPay = m.income_mode === 'per_paycheck';
-    const sourceNote = income.source === 'logged'
-      ? `Average of ${income.paychecksUsed} paycheck${income.paychecksUsed === 1 ? '' : 's'} over the last ${win} month${win === 1 ? '' : 's'}`
-      : income.source === 'fallback'
-        ? 'No paychecks logged in the window yet — using usual pay below'
-        : `${esc(formatCents(m.pay_amount_cents))} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
+    const auto = m.paycheck_average !== 'per_paycheck';
+    const n = paychecksNeeded(m.pay_frequency);
+    const latest = `latest ${n === 1 ? 'paycheck' : `${n} paychecks`}`;
+    const sourceNote = income.source === 'auto'
+      ? `${n === 1 ? 'Latest paycheck' : `Latest ${n} paychecks added up`} (one month's worth when paid ${FREQUENCY_LABEL[m.pay_frequency].toLowerCase()})`
+      : income.source === 'per_paycheck'
+        ? `Average of the ${latest} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`
+        : income.source === 'fallback'
+          ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use the average (${income.paychecksUsed} so far) — using usual pay below`
+          : `${esc(formatCents(m.pay_amount_cents))} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
 
     return `
       <div class="card member" data-member="${esc(m.user_id)}">
@@ -50,6 +54,11 @@ export function incomeView(): HTMLElement {
         </form>
 
         ${perPay ? `
+          <p class="small">How do you want to calculate the average?</p>
+          <div class="seg full" role="group" aria-label="How to calculate the average">
+            <button class="${auto ? 'on' : ''}" data-action="avg" data-avg="auto">Automatic</button>
+            <button class="${!auto ? 'on' : ''}" data-action="avg" data-avg="per_paycheck">By paycheck</button>
+          </div>
           <form class="form pay-form" data-form="check">
             <div class="grid2">
               <label>Paycheck amount
@@ -91,6 +100,10 @@ export function incomeView(): HTMLElement {
     mode: (b) => busy(b, async () => {
       await updateMember(memberOf(b), { income_mode: b.dataset.mode as IncomeMode });
       toast(b.dataset.mode === 'fixed' ? 'Using fixed income' : 'Now logging each paycheck');
+    }),
+    avg: (b) => busy(b, async () => {
+      await updateMember(memberOf(b), { paycheck_average: b.dataset.avg as PaycheckAverage });
+      toast(b.dataset.avg === 'auto' ? 'Averaging automatically' : 'Averaging by paycheck');
     }),
     'del-check': (b) => busy(b, async () => {
       await deletePaycheck(b.dataset.id!);

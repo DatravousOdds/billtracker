@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import schemaSql from '../supabase/schema.sql?raw';
 import leaveSql from '../supabase/leave.sql?raw';
 import adminSql from '../supabase/admin.sql?raw';
+import paycheckAverageSql from '../supabase/paycheck-average.sql?raw';
 
 // The bits of Supabase the schema relies on: API roles, auth.users, auth.uid(), default grants.
 const SUPABASE_STUB = `
@@ -81,7 +82,7 @@ async function count(sql: string, params: unknown[] = []) {
 beforeAll(async () => {
   db = await PGlite.create({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
-  for (const sql of [schemaSql, leaveSql, adminSql]) await db.exec(sql);
+  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql]) await db.exec(sql);
 }, 60_000);
 
 describe('normal users', () => {
@@ -211,6 +212,19 @@ describe('leaving', () => {
     await as(null);
     const [{ invite_code: now }] = await rows<{ invite_code: string }>('select invite_code from households where id = $1', [h.hid]);
     expect(now).toMatch(/^[0-9A-F]{6}$/);
+  });
+});
+
+describe('paycheck-average.sql', () => {
+  it('lets a partner choose how their average is calculated, and nothing else', async () => {
+    const h = await household('Alex', 'Sam');
+    await as(h.ids[0]);
+    expect(await rows('select paycheck_average from members where user_id = $1', [h.ids[1]])).toEqual([{ paycheck_average: 'auto' }]);
+    await db.query(`update members set paycheck_average = 'per_paycheck' where user_id = $1`, [h.ids[1]]);
+    expect(await rows('select paycheck_average from members where user_id = $1', [h.ids[1]])).toEqual([{ paycheck_average: 'per_paycheck' }]);
+    await expect(db.query(`update members set paycheck_average = 'weekly' where user_id = $1`, [h.ids[1]])).rejects.toThrow(/check constraint/);
+    await db.query(`update members set paycheck_average = 'per_paycheck', display_name = 'Sammy' where user_id = $1`, [h.ids[1]]); // unchanged: no log
+    expect(await count(`activity_log where household_id = $1 and message like '%paycheck average%'`, [h.hid])).toBe(1);
   });
 });
 
