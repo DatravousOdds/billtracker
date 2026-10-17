@@ -80,19 +80,20 @@ describe('income', () => {
       { id: '2', household_id: 'h', member_id: 'a', amount_cents: 999999, paid_on: '2026-09-03' }, // older than the latest 2
       { id: '3', household_id: 'h', member_id: 'a', amount_cents: 110000, paid_on: '2026-10-15' },
       { id: '4', household_id: 'h', member_id: 'b', amount_cents: 999999, paid_on: '2026-10-16' }, // other member
+      { id: '5', household_id: 'h', member_id: 'a', amount_cents: 999999, paid_on: '2026-10-29' }, // future: not paid yet
     ];
-    const auto = monthlyIncome(m, checks);
+    const auto = monthlyIncome(m, checks, '2026-10-17');
     expect(auto.source).toBe('auto');
     expect(auto.paychecksUsed).toBe(2);
     expect(auto.monthlyCents).toBe(210000); // 1100 + 1000
-    const per = monthlyIncome({ ...m, paycheck_average: 'per_paycheck' }, checks);
+    const per = monthlyIncome({ ...m, paycheck_average: 'per_paycheck' }, checks, '2026-10-17');
     expect(per.source).toBe('per_paycheck');
     expect(per.monthlyCents).toBe(227500); // avg 1050 × 26 ÷ 12
   });
   it('falls back to the usual paycheck until enough are logged', () => {
     const m = member('a', 100000, 'weekly', 'per_paycheck');
     const three: Paycheck[] = [1, 2, 3].map((d) => ({ id: `${d}`, household_id: 'h', member_id: 'a', amount_cents: 50000, paid_on: `2026-10-0${d}` }));
-    const r = monthlyIncome(m, three);
+    const r = monthlyIncome(m, three, '2026-10-17');
     expect(r.source).toBe('fallback');
     expect(r.paychecksUsed).toBe(3);
     expect(r.monthlyCents).toBe(monthlyFromPaycheck(100000, 'weekly'));
@@ -102,7 +103,7 @@ describe('income', () => {
 describe('split', () => {
   const a = member('a', 400000, 'monthly');
   const b = member('b', 250000, 'monthly');
-  const shares = incomeShares([a, b], []);
+  const shares = incomeShares([a, b], [], '2026-10-11');
 
   it('income shares', () => {
     expect(shares[0].ratio).toBeCloseTo(0.6154, 3);

@@ -212,6 +212,8 @@ describe('paycheck-average.sql', () => {
     await db.query(`update members set paycheck_average = 'per_paycheck' where user_id = $1`, [h.ids[1]]);
     expect(await rows('select paycheck_average from members where user_id = $1', [h.ids[1]])).toEqual([{ paycheck_average: 'per_paycheck' }]);
     await expect(db.query(`update members set paycheck_average = 'weekly' where user_id = $1`, [h.ids[1]])).rejects.toThrow(/check constraint/);
+    await db.query(`update members set paycheck_average = 'per_paycheck', display_name = 'Sammy' where user_id = $1`, [h.ids[1]]); // unchanged: no log
+    expect(await count(`activity_log where household_id = $1 and message like '%paycheck average%'`, [h.hid])).toBe(1);
   });
 });
 

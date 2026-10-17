@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import type {
   ActivityEntry, Bill, BillRequest, Contribution, Household, Member, Payment, Paycheck,
 } from './types';
+import { todayISO } from './logic/dates';
 import { incomeShares, type Share } from './logic/split';
 import { formatCents } from './logic/money';
 import { demoLog, demoState, isDemo, newId } from './demo';
@@ -112,7 +113,7 @@ async function reload() {
 
 export function shares(): Share[] {
   const s = getState();
-  return incomeShares(s.members, s.paychecks);
+  return incomeShares(s.members, s.paychecks, todayISO());
 }
 
 export function memberName(id: string | null): string {

@@ -17,7 +17,7 @@ export function incomeView(): HTMLElement {
     const n = paychecksNeeded(m.pay_frequency);
     const latest = `latest ${n === 1 ? 'paycheck' : `${n} paychecks`}`;
     const sourceNote = income.source === 'auto'
-      ? `Your ${latest} added up (one month of ${FREQUENCY_LABEL[m.pay_frequency].toLowerCase()} pay)`
+      ? `Your ${latest} added up (one month's worth when paid ${FREQUENCY_LABEL[m.pay_frequency].toLowerCase()})`
       : income.source === 'per_paycheck'
         ? `Average of your ${latest} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`
         : income.source === 'fallback'

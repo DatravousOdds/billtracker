@@ -1,4 +1,4 @@
-import type { Member, PayFrequency, Paycheck } from '../types';
+import type { ISODate, Member, PayFrequency, Paycheck } from '../types';
 
 /** Paychecks per year for each pay schedule. */
 export const PER_YEAR: Record<PayFrequency, number> = {
@@ -36,14 +36,15 @@ export const paychecksNeeded = (f: PayFrequency) => Math.floor(PER_YEAR[f] / 12)
  * Per-paycheck mode uses the latest month's worth of logged checks:
  *   auto         = their sum
  *   per_paycheck = their average × paychecks per year ÷ 12
+ * Checks dated after `today` are ignored until their date arrives.
  */
-export function monthlyIncome(member: Member, paychecks: Paycheck[]): IncomeResult {
+export function monthlyIncome(member: Member, paychecks: Paycheck[], today: ISODate): IncomeResult {
   const fixed = monthlyFromPaycheck(member.pay_amount_cents, member.pay_frequency);
   if (member.income_mode === 'fixed') return { monthlyCents: fixed, source: 'fixed', paychecksUsed: 0 };
 
   const n = paychecksNeeded(member.pay_frequency);
   const logged = paychecks
-    .filter((p) => p.member_id === member.user_id)
+    .filter((p) => p.member_id === member.user_id && p.paid_on <= today)
     .sort((a, b) => b.paid_on.localeCompare(a.paid_on));
   if (logged.length < n) return { monthlyCents: fixed, source: 'fallback', paychecksUsed: logged.length };
   const total = logged.slice(0, n).reduce((s, p) => s + p.amount_cents, 0);

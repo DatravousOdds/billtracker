@@ -26,7 +26,7 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
 ## Set up for real
 
 1. **Create a Supabase project** (the free tier is fine) at https://supabase.com.
-2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**.
+2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql` the same way (safe to re-run; existing projects need it too).
 3. **Auth settings:**
    - **Send email through Resend.** Supabase's built-in email only reaches your own team's addresses and allows just a few emails an hour, so your partner's confirmation email may never arrive. In [Resend](https://resend.com), verify a domain you own (**Domains → Add domain**) and create an API key. Then in Supabase go to **Authentication → Emails → SMTP Settings**, turn on custom SMTP, and enter: host `smtp.resend.com`, port `465`, username `resend`, password = your Resend API key, and a sender address on your verified domain (e.g. `bills@yourdomain.com`).
    - **Redirect URLs.** Under **Authentication → URL Configuration**, set **Site URL** to where the app runs (for now `http://localhost:5173`) and add it, plus any deployed URL, to **Redirect URLs**. The confirmation link sends people back there.
@@ -37,7 +37,6 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
    npm install
    npm run dev          # opens on your network, so you can test from your phone on the same Wi-Fi
    ```
-   Then run `supabase/paycheck-average.sql` the same way (safe to re-run; existing projects need it too).
 6. **Get both of you in:** one partner creates an account and chooses **Start a household**. The other creates an account, chooses **Join**, and enters the 6-letter invite code shown in Settings.
 7. **Leaving:** run `supabase/leave.sql` once in **SQL Editor** (after `schema.sql`; safe to re-run). Then either partner can tap **Leave household** in Settings to stop splitting bills.
 
