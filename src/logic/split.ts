@@ -12,13 +12,8 @@ export interface Share {
 }
 
 /** Each partner's share of the combined income. Falls back to an even split if nobody has income entered. */
-export function incomeShares(
-  members: Member[],
-  paychecks: Paycheck[],
-  windowMonths: number,
-  today: ISODate,
-): Share[] {
-  const incomes = members.map((m) => monthlyIncome(m, paychecks, windowMonths, today));
+export function incomeShares(members: Member[], paychecks: Paycheck[]): Share[] {
+  const incomes = members.map((m) => monthlyIncome(m, paychecks));
   const total = incomes.reduce((s, i) => s + i.monthlyCents, 0);
   return members.map((member, i) => ({
     member,

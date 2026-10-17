@@ -9,7 +9,7 @@ A bill tracker for two partners. It splits shared bills by each partner's share 
 - **This week:** each partner's amount for the week, bills due, overdue bills, and approvals waiting for you.
 - **Payment reminders:** any bill that's due today or overdue shows up at the top of This week with a *Confirm paid* button, and counts toward the badge on the tab. The app never moves money; it only records what you confirm (autopay bills are skipped).
 - **Smoothed weekly amounts (default):** shared monthly bills × 12 ÷ 52 every week, plus any one-time bills due that week. Each partner deposits their income share into a shared bill account. You can switch to *pay as due* in Settings.
-- **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, which uses a rolling 3-month average. The window can be changed in Settings.
+- **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, and then chooses how the average is calculated: *Automatic* adds up their latest month's worth of paychecks, *By paycheck* takes the average of those paychecks × paychecks per year ÷ 12. A month's worth depends on how often they're paid: weekly 4, every 2 weeks 2, twice a month 2, monthly 1. Until that many are logged, the usual paycheck is used.
 - **Personal bills:** all bills start shared. Either partner can request to make a bill personal (or shared again), and the other partner must approve. The database enforces this, so it can't be skipped.
 - **Both phones can edit everything,** and changes appear on the other phone right away.
 - **History:** payments, deposits, a running balance (who has covered more than their share), and an activity log of who changed what.
@@ -37,6 +37,7 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
    npm install
    npm run dev          # opens on your network, so you can test from your phone on the same Wi-Fi
    ```
+   Then run `supabase/paycheck-average.sql` the same way (safe to re-run; existing projects need it too).
 6. **Get both of you in:** one partner creates an account and chooses **Start a household**. The other creates an account, chooses **Join**, and enters the 6-letter invite code shown in Settings.
 7. **Leaving:** run `supabase/leave.sql` once in **SQL Editor** (after `schema.sql`; safe to re-run). Then either partner can tap **Leave household** in Settings to stop splitting bills.
 
@@ -87,6 +88,7 @@ Each upload needs a higher **Build** number (App target → General → Identity
 supabase/schema.sql      tables, row-level security, approval + invite functions, activity-log triggers, realtime
 supabase/leave.sql       leave_household(): a partner leaves (last one out deletes the household)
 supabase/admin.sql       admin/support roles: app_roles table, staff RLS policies, admin functions
+supabase/paycheck-average.sql  members.paycheck_average: Automatic vs By paycheck for logged income
 src/logic/               pure functions (unit-tested): money, dates, recurrence, income, split, ledger
 src/store.ts             loads household data, realtime sync, all reads/writes (+ demo-mode versions)
 src/views/               one file per screen
@@ -101,7 +103,7 @@ tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) an
 | Thing | Rule |
 |---|---|
 | Monthly income (fixed) | paycheck × (52 weekly, 26 biweekly, 24 twice-a-month, 12 monthly) ÷ 12 |
-| Monthly income (logged) | total of paychecks in the last N months ÷ N (falls back to the usual paycheck if none are logged) |
+| Monthly income (logged) | latest month's worth of paychecks (weekly 4, biweekly 2, twice-a-month 2, monthly 1). Automatic: their sum. By paycheck: their average × paychecks per year ÷ 12. Falls back to the usual paycheck until that many are logged |
 | Income share | your monthly income ÷ combined monthly income (50/50 if neither has income entered) |
 | Bill per month | weekly × 52/12 · biweekly × 26/12 · monthly × 1 · quarterly ÷ 3 · yearly ÷ 12 · one-time counts only in the week it's due |
 | Smoothed weekly | shared bills per month × 12 ÷ 52 + one-time shared bills due this week |

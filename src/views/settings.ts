@@ -26,11 +26,6 @@ export function settingsView(): HTMLElement {
             <span><strong>Pay as due</strong><br><span class="muted small">Split only the bills due that week.</span></span></label>
         </fieldset>
 
-        <label>Rolling income window (for "log each paycheck")
-          <select name="window">
-            ${[1, 2, 3, 4, 6, 12].map((n) => `<option value="${n}" ${h.income_window_months === n ? 'selected' : ''}>Last ${n} month${n > 1 ? 's' : ''}</option>`).join('')}
-          </select>
-        </label>
         <button class="btn primary" type="submit">Save household</button>
       </form>
 
@@ -95,7 +90,6 @@ export function settingsView(): HTMLElement {
         await updateHousehold({
           name: String(f.get('name')).trim() || 'Our household',
           weekly_mode: f.get('weekly_mode') as WeeklyMode,
-          income_window_months: Number(f.get('window')),
         });
         toast('Household saved');
       });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addMonths, weekStart } from '../src/logic/dates';
-import { monthlyFromPaycheck, monthlyIncome } from '../src/logic/income';
+import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
 import { dueDates } from '../src/logic/recurrence';
 import { incomeShares, ledger, needsConfirming, weekPlan } from '../src/logic/split';
@@ -8,7 +8,7 @@ import type { Bill, Member, Paycheck } from '../src/types';
 
 const member = (id: string, pay: number, freq: Member['pay_frequency'], mode: Member['income_mode'] = 'fixed'): Member => ({
   user_id: id, household_id: 'h', display_name: id, pay_amount_cents: pay, pay_frequency: freq,
-  income_mode: mode, created_at: '',
+  income_mode: mode, paycheck_average: 'auto', created_at: '',
 });
 const bill = (id: string, amount: number, recurrence: Bill['recurrence'], start: string, owner: string | null = null): Bill => ({
   id, household_id: 'h', name: id, amount_cents: amount, category: 'x', recurrence, start_date: start,
@@ -69,24 +69,40 @@ describe('income', () => {
     expect(monthlyFromPaycheck(200000, 'biweekly')).toBeCloseTo(433333.33, 1);
     expect(monthlyFromPaycheck(216650, 'semimonthly')).toBe(433300);
   });
-  it('per-paycheck uses a rolling average and falls back to fixed', () => {
+  it('needs one month of paychecks for the schedule', () => {
+    expect(['weekly', 'biweekly', 'semimonthly', 'monthly'].map((f) => paychecksNeeded(f as Member['pay_frequency'])))
+      .toEqual([4, 2, 2, 1]);
+  });
+  it('per-paycheck uses the latest month of checks, automatic or by paycheck', () => {
     const m = member('a', 200000, 'biweekly', 'per_paycheck');
     const checks: Paycheck[] = [
-      { id: '1', household_id: 'h', member_id: 'a', amount_cents: 150000, paid_on: '2026-09-01' },
-      { id: '2', household_id: 'h', member_id: 'a', amount_cents: 150000, paid_on: '2026-10-01' },
-      { id: '3', household_id: 'h', member_id: 'a', amount_cents: 999999, paid_on: '2026-06-01' }, // outside 3 months
+      { id: '1', household_id: 'h', member_id: 'a', amount_cents: 100000, paid_on: '2026-10-01' },
+      { id: '2', household_id: 'h', member_id: 'a', amount_cents: 999999, paid_on: '2026-09-03' }, // older than the latest 2
+      { id: '3', household_id: 'h', member_id: 'a', amount_cents: 110000, paid_on: '2026-10-15' },
+      { id: '4', household_id: 'h', member_id: 'b', amount_cents: 999999, paid_on: '2026-10-16' }, // other member
     ];
-    const r = monthlyIncome(m, checks, 3, '2026-10-11');
-    expect(r.source).toBe('logged');
-    expect(r.monthlyCents).toBe(100000);
-    expect(monthlyIncome(m, [], 3, '2026-10-11').source).toBe('fallback');
+    const auto = monthlyIncome(m, checks);
+    expect(auto.source).toBe('auto');
+    expect(auto.paychecksUsed).toBe(2);
+    expect(auto.monthlyCents).toBe(210000); // 1100 + 1000
+    const per = monthlyIncome({ ...m, paycheck_average: 'per_paycheck' }, checks);
+    expect(per.source).toBe('per_paycheck');
+    expect(per.monthlyCents).toBe(227500); // avg 1050 × 26 ÷ 12
+  });
+  it('falls back to the usual paycheck until enough are logged', () => {
+    const m = member('a', 100000, 'weekly', 'per_paycheck');
+    const three: Paycheck[] = [1, 2, 3].map((d) => ({ id: `${d}`, household_id: 'h', member_id: 'a', amount_cents: 50000, paid_on: `2026-10-0${d}` }));
+    const r = monthlyIncome(m, three);
+    expect(r.source).toBe('fallback');
+    expect(r.paychecksUsed).toBe(3);
+    expect(r.monthlyCents).toBe(monthlyFromPaycheck(100000, 'weekly'));
   });
 });
 
 describe('split', () => {
   const a = member('a', 400000, 'monthly');
   const b = member('b', 250000, 'monthly');
-  const shares = incomeShares([a, b], [], 3, '2026-10-11');
+  const shares = incomeShares([a, b], []);
 
   it('income shares', () => {
     expect(shares[0].ratio).toBeCloseTo(0.6154, 3);

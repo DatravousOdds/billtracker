@@ -3,7 +3,6 @@ import { supabase } from './supabase';
 import type {
   ActivityEntry, Bill, BillRequest, Contribution, Household, Member, Payment, Paycheck,
 } from './types';
-import { todayISO } from './logic/dates';
 import { incomeShares, type Share } from './logic/split';
 import { formatCents } from './logic/money';
 import { demoLog, demoState, isDemo, newId } from './demo';
@@ -113,7 +112,7 @@ async function reload() {
 
 export function shares(): Share[] {
   const s = getState();
-  return incomeShares(s.members, s.paychecks, s.household.income_window_months, todayISO());
+  return incomeShares(s.members, s.paychecks);
 }
 
 export function memberName(id: string | null): string {
@@ -239,7 +238,7 @@ export async function deleteContribution(id: string) {
   await reload();
 }
 
-export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode'>>) {
+export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode' | 'paycheck_average'>>) {
   if (isDemo) {
     return local((s) => Object.assign(s.members.find((m) => m.user_id === userId)!, patch),
       (s) => `${me(s)} updated ${memberName(userId)}'s income settings`);
@@ -270,7 +269,7 @@ export async function deletePaycheck(id: string) {
   await reload();
 }
 
-export async function updateHousehold(patch: Partial<Pick<Household, 'name' | 'weekly_mode' | 'income_window_months'>>) {
+export async function updateHousehold(patch: Partial<Pick<Household, 'name' | 'weekly_mode'>>) {
   if (isDemo) return local((s) => Object.assign(s.household, patch));
   check(await supabase.from('households').update(patch).eq('id', getState().household.id));
   await reload();

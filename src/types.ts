@@ -2,6 +2,7 @@ export type PayFrequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly';
 export type Recurrence = 'once' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
 export type WeeklyMode = 'smoothed' | 'due';
 export type IncomeMode = 'fixed' | 'per_paycheck';
+export type PaycheckAverage = 'auto' | 'per_paycheck';
 
 /** Dates are plain calendar dates: 'YYYY-MM-DD'. */
 export type ISODate = string;
@@ -11,7 +12,6 @@ export interface Household {
   name: string;
   invite_code: string;
   weekly_mode: WeeklyMode;
-  income_window_months: number;
 }
 
 export interface Member {
@@ -21,6 +21,7 @@ export interface Member {
   pay_amount_cents: number;
   pay_frequency: PayFrequency;
   income_mode: IncomeMode;
+  paycheck_average: PaycheckAverage;
   created_at: string;
 }
 
