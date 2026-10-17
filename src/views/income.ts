@@ -63,7 +63,7 @@ export function incomeView(): HTMLElement {
         <form class="form pay-form" data-form="usual">
           <div class="grid2">
             <label class="${hl('amount')}">${perPay ? 'Usual paycheck (backup)' : 'Paycheck amount'}
-              <input name="amount" inputmode="decimal" placeholder="1,250.00" value="${esc(centsToInput(m.pay_amount_cents))}">
+              <input name="amount" inputmode="decimal" placeholder="1,250.00" value="${m.pay_amount_cents ? esc(centsToInput(m.pay_amount_cents)) : ''}">
             </label>
             <label class="${hl('frequency')}">Paid
               <select name="frequency">
