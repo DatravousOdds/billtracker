@@ -4,7 +4,9 @@ import { demoSwitchUser, findMyHousehold, getState, load, loadDemo, stopRealtime
 import { todayISO } from './logic/dates';
 import { needsConfirming } from './logic/split';
 import { isDemo } from './demo';
+import { checkRole, role } from './admin';
 import { esc, html } from './ui/dom';
+import { adminPage } from './views/admin';
 import { authView, onboardingView } from './views/auth';
 import { billsView } from './views/bills';
 import { dashboardView } from './views/dashboard';
@@ -31,7 +33,17 @@ function currentRoute(): string {
 
 let unsubscribe: (() => void) | null = null;
 
+const onAdminRoute = () => role !== null && location.hash.replace(/^#\/?/, '') === 'admin';
+
 function renderShell() {
+  if (onAdminRoute()) {
+    // Already showing: the admin page loads its own data, so don't wipe it on every realtime event.
+    if (!app.querySelector('[data-admin]')) {
+      const s = getState();
+      app.replaceChildren(adminPage({ userId: s.userId, householdId: s.household.id }));
+    }
+    return;
+  }
   const s = getState();
   const route = currentRoute();
   const pending = s.requests.filter((r) => r.status === 'pending' && r.requested_by !== s.userId).length;
@@ -115,7 +127,12 @@ async function route(userId: string | null) {
 
   app.replaceChildren(html('<div class="loading">Loading…</div>'));
   try {
-    const householdId = await findMyHousehold(userId);
+    const [householdId] = await Promise.all([findMyHousehold(userId), checkRole()]);
+    if (!householdId && role) {
+      location.hash = '#/admin';
+      app.replaceChildren(adminPage({ userId, householdId: null }));
+      return;
+    }
     if (!householdId) {
       app.replaceChildren(onboardingView(() => {
         activeUser = undefined;

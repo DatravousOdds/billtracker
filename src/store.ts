@@ -38,7 +38,7 @@ function emit() {
   listeners.forEach((fn) => fn());
 }
 
-function check<T>(res: { data: T | null; error: { message: string } | null }): T {
+export function check<T>(res: { data: T | null; error: { message: string } | null }): T {
   if (res.error) throw new Error(res.error.message);
   return res.data as T;
 }
@@ -49,17 +49,17 @@ export async function findMyHousehold(userId: string): Promise<string | null> {
   return row ? (row as { household_id: string }).household_id : null;
 }
 
-/** Load everything for the household. RLS already limits every query to your household. */
+/** Load everything for the household. Filtered explicitly: RLS lets admins read every household. */
 export async function load(userId: string, householdId: string): Promise<void> {
   const [household, members, bills, payments, contributions, paychecks, requests, activity] = await Promise.all([
     supabase.from('households').select('*').eq('id', householdId).single(),
-    supabase.from('members').select('*').order('created_at'),
-    supabase.from('bills').select('*').order('name'),
-    supabase.from('payments').select('*'),
-    supabase.from('contributions').select('*').order('week_start', { ascending: false }).order('created_at', { ascending: false }),
-    supabase.from('paychecks').select('*').order('paid_on', { ascending: false }),
-    supabase.from('bill_requests').select('*').order('created_at', { ascending: false }),
-    supabase.from('activity_log').select('id, actor, message, created_at').order('created_at', { ascending: false }).limit(200),
+    supabase.from('members').select('*').eq('household_id', householdId).order('created_at'),
+    supabase.from('bills').select('*').eq('household_id', householdId).order('name'),
+    supabase.from('payments').select('*').eq('household_id', householdId),
+    supabase.from('contributions').select('*').eq('household_id', householdId).order('week_start', { ascending: false }).order('created_at', { ascending: false }),
+    supabase.from('paychecks').select('*').eq('household_id', householdId).order('paid_on', { ascending: false }),
+    supabase.from('bill_requests').select('*').eq('household_id', householdId).order('created_at', { ascending: false }),
+    supabase.from('activity_log').select('id, actor, message, created_at').eq('household_id', householdId).order('created_at', { ascending: false }).limit(200),
   ]);
   state = {
     userId,
@@ -113,7 +113,7 @@ async function reload() {
 
 export function shares(): Share[] {
   const s = getState();
-  return incomeShares(s.members, s.paychecks, s.household.income_window_months, todayISO());
+  return incomeShares(s.members, s.paychecks, todayISO());
 }
 
 export function memberName(id: string | null): string {
@@ -154,6 +154,10 @@ export async function createHousehold(name: string, displayName: string) {
 
 export async function joinHousehold(code: string, displayName: string) {
   check(await supabase.rpc('join_household', { p_invite_code: code, p_display_name: displayName }));
+}
+
+export async function leaveHousehold() {
+  check(await supabase.rpc('leave_household'));
 }
 
 export type BillInput = Pick<Bill, 'name' | 'amount_cents' | 'category' | 'recurrence' | 'start_date' | 'autopay' | 'active'>;
@@ -235,7 +239,7 @@ export async function deleteContribution(id: string) {
   await reload();
 }
 
-export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode'>>) {
+export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode' | 'paycheck_average'>>) {
   if (isDemo) {
     return local((s) => Object.assign(s.members.find((m) => m.user_id === userId)!, patch),
       (s) => `${me(s)} updated ${memberName(userId)}'s income settings`);
@@ -266,7 +270,7 @@ export async function deletePaycheck(id: string) {
   await reload();
 }
 
-export async function updateHousehold(patch: Partial<Pick<Household, 'name' | 'weekly_mode' | 'income_window_months'>>) {
+export async function updateHousehold(patch: Partial<Pick<Household, 'name' | 'weekly_mode'>>) {
   if (isDemo) return local((s) => Object.assign(s.household, patch));
   check(await supabase.from('households').update(patch).eq('id', getState().household.id));
   await reload();
