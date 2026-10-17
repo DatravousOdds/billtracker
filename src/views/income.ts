@@ -12,15 +12,17 @@ const GUIDE = [
   { target: 'frequency', title: 'Pick how often you’re paid', body: 'Weekly, every two weeks and so on. The app uses this to work out your monthly income.' },
   { target: 'save', title: 'Tap Save pay', body: 'Your share of the bills updates right away. After that, add your bills on the <a href="#/bills">Bills</a> tab.' },
 ];
-const GUIDE_KEY = 'incomeGuideSkipped';
+// Per user: partners often share one device.
+const guideKey = (userId: string) => `incomeGuideSkipped:${userId}`;
 // Lives at module level so realtime re-renders don't send the user back to step 1.
 let guideStep = 0;
+let guideUser = '';
 
-function guideSkipped(): boolean {
-  try { return localStorage.getItem(GUIDE_KEY) === '1'; } catch { return false; }
+function guideSkipped(userId: string): boolean {
+  try { return localStorage.getItem(guideKey(userId)) === '1'; } catch { return false; }
 }
-function setGuideSkipped(skipped: boolean) {
-  try { skipped ? localStorage.setItem(GUIDE_KEY, '1') : localStorage.removeItem(GUIDE_KEY); } catch { /* private mode: guide just reappears */ }
+function setGuideSkipped(userId: string, skipped: boolean) {
+  try { skipped ? localStorage.setItem(guideKey(userId), '1') : localStorage.removeItem(guideKey(userId)); } catch { /* private mode: guide just reappears */ }
 }
 
 export function incomeView(): HTMLElement {
@@ -29,7 +31,8 @@ export function incomeView(): HTMLElement {
 
   // Same "no income yet" test the dashboard uses, so the two screens agree.
   const needsPay = sh.find((x) => x.member.user_id === s.userId)?.income.monthlyCents === 0;
-  const showGuide = needsPay && !guideSkipped();
+  if (guideUser !== s.userId) { guideUser = s.userId; guideStep = 0; }
+  const showGuide = needsPay && !guideSkipped(s.userId);
   const step = GUIDE[guideStep];
   const win = s.household.income_window_months;
 
@@ -102,7 +105,7 @@ export function incomeView(): HTMLElement {
         <span class="muted small">Set up your income · Step ${guideStep + 1} of ${GUIDE.length}</span>
         <button class="btn ghost sm" data-action="guide-skip">Skip guide</button>
       </div>
-      <h2>${step.title}</h2>
+      <h2 tabindex="-1">${step.title}</h2>
       <p>${step.body}</p>
       <div class="guide-nav">
         ${guideStep > 0 ? '<button class="btn ghost sm" data-action="guide-back">Back</button>' : ''}
@@ -135,14 +138,16 @@ export function incomeView(): HTMLElement {
     guideStep = i;
     const next = incomeView();
     el.replaceWith(next);
+    // The clicked button is gone; move focus to the new step so keyboard and screen reader users follow along.
+    next.querySelector<HTMLElement>('.guide h2, [data-action="guide-show"]')?.focus({ preventScroll: true });
     next.querySelector('.guide-on')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   };
 
   on(el, {
     'guide-next': () => goTo(guideStep + 1),
     'guide-back': () => goTo(guideStep - 1),
-    'guide-skip': () => { setGuideSkipped(true); goTo(0); },
-    'guide-show': () => { setGuideSkipped(false); goTo(0); },
+    'guide-skip': () => { setGuideSkipped(s.userId, true); goTo(0); },
+    'guide-show': () => { setGuideSkipped(s.userId, false); goTo(0); },
     mode: (b) => busy(b, async () => {
       await updateMember(memberOf(b), { income_mode: b.dataset.mode as IncomeMode });
       toast(b.dataset.mode === 'fixed' ? 'Using fixed income' : 'Now logging each paycheck');
