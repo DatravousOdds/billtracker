@@ -137,6 +137,13 @@ export function incomeView(): HTMLElement {
   const goTo = (i: number) => {
     guideStep = i;
     const next = incomeView();
+    // Carry over what the user typed but hasn't saved, or Next would wipe the amount from step 2.
+    const key = (f: HTMLInputElement) => `${memberOf(f)}|${f.form?.dataset.form}|${f.name}`;
+    const typed = new Map([...el.querySelectorAll<HTMLInputElement>('[data-member] [name]')].map((f) => [key(f), f.value]));
+    next.querySelectorAll<HTMLInputElement>('[data-member] [name]').forEach((f) => {
+      const v = typed.get(key(f));
+      if (v !== undefined) f.value = v;
+    });
     el.replaceWith(next);
     // The clicked button is gone; move focus to the new step so keyboard and screen reader users follow along.
     next.querySelector<HTMLElement>('.guide h2, [data-action="guide-show"]')?.focus({ preventScroll: true });
