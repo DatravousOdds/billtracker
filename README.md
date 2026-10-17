@@ -38,7 +38,7 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
    npm run dev          # opens on your network, so you can test from your phone on the same Wi-Fi
    ```
 6. **Get both of you in:** one partner creates an account and chooses **Start a household**. The other creates an account, chooses **Join**, and enters the 6-letter invite code shown in Settings.
-7. **Leaving:** run `supabase/leave.sql` once in **SQL Editor** (after `schema.sql`; safe to re-run). Then either partner can tap **Leave household** in Settings to stop splitting bills.
+7. **Leaving:** run `supabase/leave.sql` once in **SQL Editor** (after `schema.sql`; safe to re-run). Then either partner can tap **Leave household** in Settings to stop splitting bills. The household gets a new invite code, so they can't rejoin unless the remaining partner shares it.
 
 ## Admin and support (app owner)
 

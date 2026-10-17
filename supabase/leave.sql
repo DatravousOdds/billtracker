@@ -18,6 +18,19 @@ begin
   delete from households    where id = p_household;
 end $$;
 
+-- A fresh 6-character invite code no household is using. Internal: not callable from the app.
+create or replace function public.new_invite_code()
+returns text language plpgsql volatile set search_path = public, extensions as $$
+declare
+  v_code text;
+begin
+  loop
+    v_code := upper(substr(encode(gen_random_bytes(6), 'hex'), 1, 6));
+    exit when not exists (select 1 from households where invite_code = v_code);
+  end loop;
+  return v_code;
+end $$;
+
 -- Removes one member from their household. Internal: not callable from the app.
 -- Their deposits and paychecks are deleted and their personal bills become shared.
 -- The last one out deletes the household, so nobody can join with the old invite
@@ -47,12 +60,16 @@ begin
   delete from members where user_id = p_user;
   perform set_config('app.approved_owner_change', 'off', true);
 
+  -- They still know the old code; without a new one they could rejoin uninvited.
+  update households set invite_code = new_invite_code() where id = v_h;
+
   -- Drop the per-row "removed deposit/paycheck" entries the cascade just logged (now() = this transaction).
   delete from activity_log where household_id = v_h and actor is not distinct from auth.uid() and created_at = now();
   insert into activity_log (household_id, actor, message)
   values (v_h, auth.uid(), v_name || ' ' || p_how);
 end $$;
 
+revoke execute on function public.new_invite_code()           from public, anon, authenticated;
 revoke execute on function public.delete_household_data(uuid) from public, anon, authenticated;
 revoke execute on function public.remove_member(uuid, text)   from public, anon, authenticated;
 

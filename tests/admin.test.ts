@@ -201,6 +201,17 @@ describe('leaving', () => {
     await db.query('select public.leave_household()');
     expect(await count('households where id = $1', [h.hid])).toBe(0);
   });
+
+  it('changes the invite code, so whoever left cannot rejoin with the old one', async () => {
+    const h = await household('Alex', 'Sam');
+    const [{ invite_code: old }] = await rows<{ invite_code: string }>('select invite_code from households where id = $1', [h.hid]);
+    await as(h.ids[1]);
+    await db.query('select public.leave_household()');
+    await expect(db.query('select public.join_household($1, $2)', [old, 'Sam'])).rejects.toThrow('Invite code not found');
+    await as(null);
+    const [{ invite_code: now }] = await rows<{ invite_code: string }>('select invite_code from households where id = $1', [h.hid]);
+    expect(now).toMatch(/^[0-9A-F]{6}$/);
+  });
 });
 
 describe('admin.sql', () => {
