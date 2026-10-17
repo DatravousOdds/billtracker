@@ -30,6 +30,13 @@ declare
 begin
   if v_h is null then raise exception 'Not in a household'; end if;
 
+  -- One removal per household at a time (both partners leaving at once, or an admin removing
+  -- one while the other leaves); otherwise both could see the other and leave an empty household.
+  perform 1 from households where id = v_h for update;
+  if not exists (select 1 from members where user_id = p_user and household_id = v_h) then
+    raise exception 'Not in a household';
+  end if;
+
   if not exists (select 1 from members where household_id = v_h and user_id <> p_user) then
     perform delete_household_data(v_h);
     return;

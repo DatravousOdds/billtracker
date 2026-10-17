@@ -42,6 +42,7 @@ function adminView(me: Me): HTMLElement {
   const root = html('<section class="view"><div class="loading">Loading…</div></section>');
   let ov: Overview;
   let hh: AdminHousehold | null = null;
+  let loads = 0; // only the newest refresh() may paint, so a slow earlier load can't overwrite it
 
   const memberName = (id: string | null) =>
     id === null ? 'Shared account' : ov.members.find((m) => m.user_id === id)?.display_name ?? 'Removed member';
@@ -49,13 +50,21 @@ function adminView(me: Me): HTMLElement {
   const householdName = (id: string | null) => ov.households.find((h) => h.id === id)?.name;
 
   async function refresh() {
+    const load = ++loads;
     try {
-      ov = await loadOverview();
-      if (selected && !ov.households.some((h) => h.id === selected)) selected = null;
-      hh = selected ? await loadHousehold(selected) : null;
+      const nextOv = await loadOverview();
+      const sel = selected && nextOv.households.some((h) => h.id === selected) ? selected : null;
+      const nextHh = sel ? await loadHousehold(sel) : null;
+      if (load !== loads) return;
+      selected = sel;
+      ov = nextOv;
+      hh = nextHh;
       root.innerHTML = selected && hh ? detail(hh) : overview();
     } catch (err) {
-      root.innerHTML = `<p class="empty">Couldn't load: ${esc(errorMessage(err))}</p>`;
+      if (load !== loads) return;
+      root.innerHTML = `
+        <p class="empty">Couldn't load: ${esc(errorMessage(err))}</p>
+        <button class="btn ghost block" data-action="retry">Try again</button>`;
     }
   }
 
@@ -183,6 +192,7 @@ function adminView(me: Me): HTMLElement {
   on(root, {
     open: (b) => { selected = b.dataset.id!; root.innerHTML = '<div class="loading">Loading…</div>'; refresh(); },
     back: () => { selected = null; refresh(); },
+    retry: () => { root.innerHTML = '<div class="loading">Loading…</div>'; refresh(); },
     edit: (b) => openEdit(b.dataset.table as AdminTable, b.dataset.id!),
     del: (b) => busy(b, async () => {
       if (!await confirmSheet('Delete?', 'Delete this row for good? This can\'t be undone.', 'Delete', true)) return;
