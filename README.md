@@ -38,6 +38,26 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
    npm run dev          # opens on your network, so you can test from your phone on the same Wi-Fi
    ```
 6. **Get both of you in:** one partner creates an account and chooses **Start a household**. The other creates an account, chooses **Join**, and enters the 6-letter invite code shown in Settings.
+7. **Leaving:** run `supabase/leave.sql` once in **SQL Editor** (after `schema.sql`; safe to re-run). Then either partner can tap **Leave household** in Settings to stop splitting bills.
+
+## Admin and support (app owner)
+
+An in-app admin screen at `#/admin` (linked from Settings) shows every household and user.
+
+| Role | Can do |
+|---|---|
+| **Admin** | Everything: look up users, edit or delete any bill, payment, deposit or paycheck, remove members, delete accounts or households, reset invite codes, and change roles in **Settings → Account roles** |
+| **Support** | View every household and user, reset invite codes. No edits or deletes |
+| **User** | Default. Only their own household |
+
+1. In **SQL Editor**, run `supabase/admin.sql` once (after `schema.sql` and `leave.sql`; safe to re-run).
+2. Make yourself the first admin:
+   ```sql
+   insert into public.app_roles (user_id, role) select id, 'admin' from auth.users where email = 'you@example.com';
+   ```
+3. Sign out and back in. From then on, give other accounts roles in **Settings → Account roles**. Nobody can change their own role, so the last admin can't lock themselves out.
+
+Access is enforced in the database (`is_admin()` / `is_staff()`), so the role only matters on the server; opening `#/admin` without one shows nothing.
 
 ## Deploy so it works anywhere
 
@@ -65,12 +85,15 @@ Each upload needs a higher **Build** number (App target → General → Identity
 
 ```
 supabase/schema.sql      tables, row-level security, approval + invite functions, activity-log triggers, realtime
+supabase/leave.sql       leave_household(): a partner leaves (last one out deletes the household)
+supabase/admin.sql       admin/support roles: app_roles table, staff RLS policies, admin functions
 src/logic/               pure functions (unit-tested): money, dates, recurrence, income, split, ledger
 src/store.ts             loads household data, realtime sync, all reads/writes (+ demo-mode versions)
 src/views/               one file per screen
 src/ui/                  small DOM helpers and shared list rows
 src/demo.ts              sample data for the demo build
 tests/logic.test.ts      npm test
+tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) and checks who can read/change what
 ```
 
 ## How the numbers work
