@@ -53,6 +53,22 @@ export function dueDates(bill: Pick<Bill, 'recurrence' | 'start_date'>, from: IS
   return out;
 }
 
+/** A bill's next due date on or after `today` (within ~13 months), or null if none. */
+export function nextDue(bill: Pick<Bill, 'recurrence' | 'start_date'>, today: ISODate): ISODate | null {
+  return dueDates(bill, today, addDays(today, 400))[0] ?? null;
+}
+
+/** Bills ordered by next due date; bills with no upcoming date go last in either direction. */
+export function sortByNextDue<T extends Pick<Bill, 'recurrence' | 'start_date'>>(bills: T[], today: ISODate, desc: boolean): T[] {
+  return bills
+    .map((bill) => ({ bill, due: nextDue(bill, today) }))
+    .sort((a, b) => {
+      if (!a.due || !b.due) return a.due ? -1 : b.due ? 1 : 0;
+      return desc ? b.due.localeCompare(a.due) : a.due.localeCompare(b.due);
+    })
+    .map((x) => x.bill);
+}
+
 /** A bill's average cost per month, in cents (one-time bills count as 0). */
 export function monthlyEquivalent(bill: Pick<Bill, 'recurrence' | 'amount_cents'>): number {
   return bill.amount_cents * PER_MONTH[bill.recurrence];
