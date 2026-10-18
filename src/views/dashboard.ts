@@ -80,6 +80,7 @@ export function dashboardView(): HTMLElement {
   const onlyOne = s.members.length < 2;
 
   // ----- Left after bills -----
+  // Hidden until someone has income: the 50/50 fallback would show made-up negatives.
   const monthStart = today.slice(0, 8) + '01';
   const weekLeft = leftover(s.bills, s.payments, sh, plan.weekStart, plan.weekEnd, 'week');
   const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month');
@@ -130,11 +131,11 @@ export function dashboardView(): HTMLElement {
         <div class="people">${people}</div>
       </div>
 
-      <div class="card">
+      ${noIncome ? '' : `<div class="card">
         <div class="eyebrow">Left after bills</div>
         <div class="muted small">Income minus the bills due in each period, paid or not.${smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</div>
         <div class="people">${leftPeople}</div>
-      </div>
+      </div>`}
 
       <h2 class="section-title">Due this week</h2>
       ${restThisWeek.length
