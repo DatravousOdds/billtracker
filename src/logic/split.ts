@@ -159,9 +159,12 @@ export function depositDue(
     weekPlan(d, mode, bills, payments, shares).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
   const start = weekStart(date);
   const end = addDays(start, 6);
-  if (!member.payday) return { cents: share(start), weeks: 1, nextPayday: null, fromWeek: start };
+  const weekly = { cents: share(start), weeks: 1, nextPayday: null, fromWeek: start };
+  if (!member.payday) return weekly;
   if (!paydays(member, start, end).length) {
-    return { cents: 0, weeks: 0, nextPayday: paydays(member, addDays(end, 1), addDays(end, 62))[0] ?? null, fromWeek: start };
+    const next = paydays(member, addDays(end, 1), addDays(end, 62))[0];
+    // Every schedule pays within 62 days; no payday means a bad saved date, so keep asking weekly.
+    return next ? { cents: 0, weeks: 0, nextPayday: next, fromWeek: start } : weekly;
   }
   // Walk back to the last payday week (at most 6 weeks; monthly pay is the longest gap).
   let weeks = 1;

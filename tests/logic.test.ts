@@ -173,6 +173,8 @@ describe('split', () => {
     expect(depositDue(paid, '2026-10-13', 'smoothed', bills, [], shares)).toEqual({ cents: 0, weeks: 0, nextPayday: '2026-10-23', fromWeek: '2026-10-11' });
     expect(depositDue(paid, '2026-10-20', 'smoothed', bills, [], shares)).toEqual({ cents: weekly * 2, weeks: 2, nextPayday: null, fromWeek: '2026-10-11' });
     expect(depositDue(b, '2026-10-13', 'smoothed', bills, [], shares)).toEqual({ cents: weekly, weeks: 1, nextPayday: null, fromWeek: '2026-10-11' });
+    // A payday saved too far ahead to project falls back to asking every week.
+    expect(depositDue({ ...paid, payday: '2028-03-03' }, '2026-10-13', 'smoothed', bills, [], shares)).toMatchObject({ cents: weekly, weeks: 1 });
     // Monthly pay on the 1st: Nov 1 week covers the 5 weeks since the Oct 1 week.
     const monthly = { ...b, payday: '2026-10-01' };
     expect(depositDue(monthly, '2026-11-02', 'smoothed', bills, [], shares)).toMatchObject({ weeks: 5, fromWeek: '2026-10-04' });

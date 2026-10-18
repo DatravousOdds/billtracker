@@ -141,9 +141,11 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
     const f = new FormData(e.currentTarget);
     const amount = parseDollars(String(f.get('amount')));
     if (amount === null) return toast('Enter an amount like 1,250.00', 'error');
+    const payday = String(f.get('payday')) || null;
     runPay(async () => {
+      // Only send payday when it was changed, so Save pay keeps working before pay-schedule.sql has run.
       await updateMember(m.user_id, {
-        pay_amount_cents: amount, pay_frequency: f.get('frequency') as PayFrequency, payday: String(f.get('payday')) || null,
+        pay_amount_cents: amount, pay_frequency: f.get('frequency') as PayFrequency, ...(payday !== nextPayday && { payday }),
       });
       toast('Pay saved');
     });
@@ -206,7 +208,7 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
               </label>
             </div>
             <label>Next payday (optional)
-              <input name="payday" type="date" defaultValue={nextPayday ?? ''} />
+              <input name="payday" type="date" max={addDays(todayISO(), 364)} defaultValue={nextPayday ?? ''} />
               <span className="muted small">Deposits are only asked for in weeks you get paid.</span>
             </label>
             <button className={`btn ghost sm${hl('save')}`} type="submit" disabled={savingPay}>Save pay</button>
