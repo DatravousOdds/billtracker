@@ -10,6 +10,7 @@ A bill tracker for two partners. It splits shared bills by each partner's share 
 - **Payment reminders:** any bill that's due today or overdue shows up at the top of This week with a *Confirm paid* button, and counts toward the badge on the tab. The app never moves money; it only records what you confirm (autopay bills are skipped).
 - **Smoothed weekly amounts (default):** shared monthly bills × 12 ÷ 52 every week, plus any one-time bills due that week. Each partner deposits their income share into a shared bill account. You can switch to *pay as due* in Settings.
 - **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, and then chooses how the average is calculated: *Automatic* adds up their latest month's worth of paychecks, *By paycheck* takes the average of those paychecks × paychecks per year ÷ 12. A month's worth depends on how often they're paid: weekly 4, every 2 weeks 2, twice a month 2, monthly 1. Until that many are logged, the usual paycheck is used.
+- **Left after bills:** on This week, each partner sees what's left of their income this week and this month after their share of shared bills and their own personal bills.
 - **Personal bills:** all bills start shared. Either partner can request to make a bill personal (or shared again), and the other partner must approve. The database enforces this, so it can't be skipped.
 - **Both phones can edit everything except income:** each partner changes only their own pay and paychecks (the partner's are view-only). Changes appear on the other phone right away.
 - **History:** payments, deposits, a running balance (who has covered more than their share), and an activity log of who changed what.
@@ -107,6 +108,7 @@ tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) an
 | Income share | your monthly income ÷ combined monthly income (50/50 if neither has income entered) |
 | Bill per month | weekly × 52/12 · biweekly × 26/12 · monthly × 1 · quarterly ÷ 3 · yearly ÷ 12 · one-time counts only in the week it's due |
 | Smoothed weekly | shared bills per month × 12 ÷ 52 + one-time shared bills due this week |
+| Left after bills | income − your split of shared bills due − your personal bills due, for this Sun–Sat week and this calendar month. Bills count paid or not; a paid bill counts at the amount paid. Month uses monthly income (an average month, not actual paydays); week uses monthly × 12 ÷ 52, or for *Automatic* the average logged paycheck × paychecks per year ÷ 52 |
 | Running balance | (deposits + shared bills you paid directly) − your income share of everything both of you put in. The two balances always add up to $0. |
 
 Money is stored as whole cents, so totals never drift. Splits are rounded so the two parts always add up exactly to the total.

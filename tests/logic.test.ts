@@ -3,7 +3,7 @@ import { addMonths, weekStart } from '../src/logic/dates';
 import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
 import { dueDates } from '../src/logic/recurrence';
-import { incomeShares, ledger, needsConfirming, weekPlan } from '../src/logic/split';
+import { incomeShares, ledger, leftover, needsConfirming, weekPlan } from '../src/logic/split';
 import type { Bill, Member, Paycheck } from '../src/types';
 
 const member = (id: string, pay: number, freq: Member['pay_frequency'], mode: Member['income_mode'] = 'fixed'): Member => ({
@@ -131,6 +131,46 @@ describe('split', () => {
     const bills = [bill('rent', 130000, 'monthly', '2026-01-01'), bill('phone', 8000, 'monthly', '2026-01-15')];
     const plan = weekPlan('2026-10-13', 'due', bills, [], shares);
     expect(plan.sharedTotalCents).toBe(8000);
+  });
+
+  it('leftover: month income minus split shared bills and own personal bills', () => {
+    const bills = [
+      bill('rent', 130000, 'monthly', '2026-01-01'),
+      bill('car', 40000, 'monthly', '2026-01-13', 'b'),
+      { ...bill('gym', 5000, 'monthly', '2026-01-05'), active: false },
+    ];
+    const [la, lb] = leftover(bills, [], shares, '2026-10-01', '2026-10-31', 'month');
+    expect(la.sharedCents + lb.sharedCents).toBe(130000); // paused gym left out
+    expect(la.personalCents).toBe(0);
+    expect(lb.personalCents).toBe(40000);
+    expect(la.leftCents).toBe(400000 - la.sharedCents);
+    expect(lb.leftCents).toBe(250000 - lb.sharedCents - 40000);
+  });
+
+  it('leftover: week prorates income and only counts bills due that week, can go negative', () => {
+    const bills = [bill('rent', 130000, 'monthly', '2026-01-01'), bill('repair', 300000, 'once', '2026-10-14')];
+    const [la, lb] = leftover(bills, [], shares, '2026-10-11', '2026-10-17', 'week');
+    expect(la.incomeCents).toBe(92308); // 4000 × 12 ÷ 52
+    expect(la.sharedCents + lb.sharedCents).toBe(300000); // rent is Oct 1, not this week
+    expect(la.leftCents).toBeLessThan(0);
+  });
+
+  it('leftover: automatic averaging gives a weekly earner their average check per week', () => {
+    const sam = member('s', 0, 'weekly', 'per_paycheck');
+    const checks = [65000, 61250, 70500, 65000].map((amount_cents, i) => ({
+      id: `p${i}`, household_id: 'h', member_id: 's', amount_cents, paid_on: `2026-10-0${i + 1}`,
+    }));
+    const sh = incomeShares([sam], checks, '2026-10-18');
+    expect(sh[0].income.monthlyCents).toBe(261750); // 4 checks added up
+    const [week] = leftover([], [], sh, '2026-10-18', '2026-10-24', 'week');
+    expect(week.incomeCents).toBe(65438); // 2,617.50 ÷ 4, not 2,617.50 × 12 ÷ 52 = 604.04
+  });
+
+  it('leftover: a paid bill counts at the amount actually paid', () => {
+    const bills = [bill('electric', 13500, 'monthly', '2026-01-18')];
+    const paid = [{ id: 'p', household_id: 'h', bill_id: 'electric', due_date: '2026-10-18', paid_on: '2026-10-18', amount_cents: 14200, paid_by: null }];
+    const [la, lb] = leftover(bills, paid, shares, '2026-10-01', '2026-10-31', 'month');
+    expect(la.sharedCents + lb.sharedCents).toBe(14200);
   });
 
   it('ledger balances add up to zero', () => {
