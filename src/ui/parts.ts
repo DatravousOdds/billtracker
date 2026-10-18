@@ -19,7 +19,7 @@ export function billBadges(o: Occurrence): string {
 
 /** One bill due date as a list row with a paid toggle. */
 export function occurrenceRow(o: Occurrence, today = todayISO()): string {
-  const overdue = !o.payment && !o.bill.autopay && o.date < today && o.date >= o.bill.created_at.slice(0, 10);
+  const overdue = !o.payment && !o.bill.autopay && o.date < today;
   const status = o.payment
     ? `<button class="pill paid" data-action="unpay" data-payment="${esc(o.payment.id)}" aria-label="Paid. Tap to undo">✓ Paid</button>`
     : `<button class="pill ${overdue ? 'overdue' : ''}" data-action="pay" data-bill="${esc(o.bill.id)}" data-date="${esc(o.date)}">Confirm paid</button>`;

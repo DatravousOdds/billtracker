@@ -155,4 +155,9 @@ describe('split', () => {
       'water 2026-08-12', 'rent 2026-09-01', 'phone 2026-09-11', 'water 2026-09-12', 'phone 2026-10-11',
     ]);
   });
+
+  it('needs confirming: a bill added with a past due date is unpaid from that date', () => {
+    const late = { ...bill('gas', 5000, 'monthly', '2026-09-10'), created_at: '2026-10-18T12:00:00Z' };
+    expect(needsConfirming([late], [], '2026-10-18').map((o) => o.date)).toEqual(['2026-09-10', '2026-10-10']);
+  });
 });

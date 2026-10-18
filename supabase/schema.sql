@@ -440,7 +440,7 @@ create policy "update own household" on public.households
 
 create policy "read household members" on public.members
   for select using (household_id = public.my_household());
--- Both partners can edit either partner's income (both phones can edit everything).
+-- Both partners can edit either partner's income here; own-income.sql narrows it to your own row.
 create policy "update household members" on public.members
   for update using (household_id = public.my_household()) with check (household_id = public.my_household());
 

@@ -125,6 +125,7 @@ function openBillSheet(bill: Bill | null) {
           <datalist id="categories">${CATEGORIES.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
         </label>
       </div>
+      ${bill ? '' : '<p class="muted small" data-past-hint hidden>This date has passed. It will show as overdue until you confirm it\'s paid.</p>'}
       <label class="check"><input type="checkbox" name="autopay" ${bill?.autopay ? 'checked' : ''}> Autopay</label>
       ${bill ? `<label class="check"><input type="checkbox" name="active" ${bill.active ? 'checked' : ''}> Active (uncheck to pause)</label>` : ''}
 
@@ -135,6 +136,14 @@ function openBillSheet(bill: Bill | null) {
     </form>`) as HTMLFormElement;
 
   const sh = sheet(bill ? 'Edit bill' : 'Add bill', body);
+  // Autopay bills never show as overdue, so the hint only applies without it.
+  const pastHint = body.querySelector<HTMLElement>('[data-past-hint]');
+  body.addEventListener('input', () => {
+    if (!pastHint) return;
+    const f = new FormData(body);
+    const date = String(f.get('start_date'));
+    pastHint.hidden = !date || date >= todayISO() || f.get('autopay') === 'on';
+  });
 
   body.addEventListener('submit', (e) => {
     e.preventDefault();
