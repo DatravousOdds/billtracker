@@ -138,6 +138,8 @@ export interface DepositDue {
   weeks: number;
   /** Set in a week without a payday: when they're next paid. */
   nextPayday: ISODate | null;
+  /** Start of the first week covered; deposits filed from then on count toward this one. */
+  fromWeek: ISODate;
 }
 
 /**
@@ -157,16 +159,16 @@ export function depositDue(
     weekPlan(d, mode, bills, payments, shares).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
   const start = weekStart(date);
   const end = addDays(start, 6);
-  if (!member.payday) return { cents: share(start), weeks: 1, nextPayday: null };
+  if (!member.payday) return { cents: share(start), weeks: 1, nextPayday: null, fromWeek: start };
   if (!paydays(member, start, end).length) {
-    return { cents: 0, weeks: 0, nextPayday: paydays(member, addDays(end, 1), addDays(end, 62))[0] ?? null };
+    return { cents: 0, weeks: 0, nextPayday: paydays(member, addDays(end, 1), addDays(end, 62))[0] ?? null, fromWeek: start };
   }
   // Walk back to the last payday week (at most 6 weeks; monthly pay is the longest gap).
   let weeks = 1;
   while (weeks < 6 && !paydays(member, addDays(start, -7 * weeks), addDays(start, -7 * weeks + 6)).length) weeks++;
   let cents = 0;
   for (let i = 0; i < weeks; i++) cents += share(addDays(start, -7 * i));
-  return { cents, weeks, nextPayday: null };
+  return { cents, weeks, nextPayday: null, fromWeek: addDays(start, -7 * (weeks - 1)) };
 }
 
 export interface Leftover {

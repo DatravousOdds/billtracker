@@ -26,8 +26,9 @@ export function DashboardView() {
   const pending = s.requests.filter((r) => r.status === 'pending');
 
   // ----- Who pays what -----
-  const deposited = (memberId: string) => s.contributions
-    .filter((c) => c.member_id === memberId && c.week_start === plan.weekStart)
+  // A payday deposit can cover earlier weeks, so anything already put in for those weeks counts too.
+  const deposited = (memberId: string, fromWeek: string) => s.contributions
+    .filter((c) => c.member_id === memberId && c.week_start >= fromWeek && c.week_start <= plan.weekStart)
     .reduce((sum, c) => sum + c.amount_cents, 0);
 
   const noIncome = sh.every((x) => x.income.monthlyCents === 0);
@@ -99,9 +100,9 @@ export function DashboardView() {
         </div>
         <div className="people">
           {plan.perMember.map((p) => {
-            const done = deposited(p.member.user_id);
             const isMe = p.member.user_id === s.userId;
             const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh);
+            const done = deposited(p.member.user_id, due.fromWeek);
             // contributions are sorted newest first, so the first match is the partner's latest.
             const last = !isMe && smoothed ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
             return (
