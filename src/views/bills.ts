@@ -118,7 +118,7 @@ function openBillSheet(bill: Bill | null) {
       </div>
       <div class="grid2">
         <label>${bill ? 'First due date' : 'Next due date'}
-          <input name="start_date" type="date" required value="${esc(bill?.start_date ?? todayISO())}">
+          <input name="start_date" type="date" required min="1900-01-01" max="9999-12-31" value="${esc(bill?.start_date ?? todayISO())}">
         </label>
         <label>Category
           <input name="category" list="categories" value="${esc(bill?.category ?? 'Other')}">

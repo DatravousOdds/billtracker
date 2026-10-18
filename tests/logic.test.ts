@@ -61,6 +61,10 @@ describe('recurrence', () => {
     expect(dueDates({ recurrence: 'once', start_date: '2026-10-12' }, '2026-10-11', '2026-10-17')).toEqual(['2026-10-12']);
     expect(dueDates({ recurrence: 'monthly', start_date: '2026-12-01' }, '2026-10-01', '2026-10-31')).toEqual([]);
   });
+  it('ignores start dates without a 4-digit year instead of looping', () => {
+    expect(dueDates({ recurrence: 'monthly', start_date: '10000-01-01' }, '2026-08-19', '2026-10-17')).toEqual([]);
+    expect(dueDates({ recurrence: 'weekly', start_date: '' }, '2026-08-19', '2026-10-17')).toEqual([]);
+  });
 });
 
 describe('income', () => {
