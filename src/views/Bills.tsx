@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState, type FormEvent } from 'react';
 import { addDays, formatShort, todayISO } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import { dueDates, monthlyEquivalent, RECURRENCE_LABEL } from '../logic/recurrence';
+import { dueDates, monthlyEquivalent, nextDue, RECURRENCE_LABEL, sortByNextDue } from '../logic/recurrence';
 import type { Bill, Recurrence } from '../types';
 import {
   deleteBill, getState, memberName, requestOwnership, saveBill, type BillInput,
@@ -13,23 +13,21 @@ import { toast } from '../ui/toast';
 
 const CATEGORIES = ['Housing', 'Utilities', 'Insurance', 'Transportation', 'Phone & Internet', 'Subscriptions', 'Debt', 'Childcare', 'Groceries', 'Medical', 'Other'];
 
-function nextDue(bill: Bill): string | null {
-  const today = todayISO();
-  return dueDates(bill, today, addDays(today, 400))[0] ?? null;
-}
-
 export function BillsView() {
   const s = useAppState();
   // null = adding a new bill
   const [editing, setEditing] = useState<{ bill: Bill | null } | null>(null);
-  const active = s.bills.filter((b) => b.active);
-  const paused = s.bills.filter((b) => !b.active);
+  const [desc, setDesc] = useState(true);
+  const today = todayISO();
+  const bills = sortByNextDue(s.bills, today, desc);
+  const active = bills.filter((b) => b.active);
+  const paused = bills.filter((b) => !b.active);
   const shared = active.filter((b) => b.owner_id === null);
   const personal = active.filter((b) => b.owner_id !== null);
   const monthlyShared = shared.reduce((sum, b) => sum + monthlyEquivalent(b), 0);
 
   const row = (b: Bill) => {
-    const next = nextDue(b);
+    const next = nextDue(b, today);
     const pending = s.requests.some((r) => r.bill_id === b.id && r.status === 'pending');
     return (
       <li key={b.id} className="bill-row" tabIndex={0} role="button"
@@ -59,7 +57,13 @@ export function BillsView() {
           <h1>Bills</h1>
           <p className="muted small">Shared bills average {formatCents(Math.round(monthlyShared))}/month</p>
         </div>
-        <button type="button" className="btn primary" onClick={() => setEditing({ bill: null })}>+ Add bill</button>
+        <div className="inline">
+          <button type="button" className="btn ghost" onClick={() => setDesc(!desc)}
+            aria-label={`Due date, ${desc ? 'latest' : 'soonest'} first`}>
+            Due date {desc ? '↓' : '↑'}
+          </button>
+          <button type="button" className="btn primary" onClick={() => setEditing({ bill: null })}>+ Add bill</button>
+        </div>
       </div>
 
       <h2 className="section-title">Shared · split by income</h2>

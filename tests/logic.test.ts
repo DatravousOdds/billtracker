@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { addMonths, weekStart } from '../src/logic/dates';
 import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
-import { dueDates } from '../src/logic/recurrence';
+import { dueDates, sortByNextDue } from '../src/logic/recurrence';
 import { incomeShares, ledger, leftover, needsConfirming, weekPlan } from '../src/logic/split';
 import type { Bill, Member, Paycheck } from '../src/types';
 
@@ -64,6 +64,17 @@ describe('recurrence', () => {
   it('ignores start dates without a 4-digit year instead of looping', () => {
     expect(dueDates({ recurrence: 'monthly', start_date: '10000-01-01' }, '2026-08-19', '2026-10-17')).toEqual([]);
     expect(dueDates({ recurrence: 'weekly', start_date: '' }, '2026-08-19', '2026-10-17')).toEqual([]);
+  });
+  it('sorts bills by next due date, with no-upcoming-date bills last', () => {
+    const bills = [
+      bill('rent', 1, 'monthly', '2026-01-01'),   // next 2026-11-01
+      bill('done', 1, 'once', '2026-09-01'),      // already past
+      bill('phone', 1, 'monthly', '2026-01-25'),  // next 2026-10-25
+      bill('car', 1, 'yearly', '2025-03-10'),     // next 2027-03-10
+    ];
+    const names = (desc: boolean) => sortByNextDue(bills, '2026-10-18', desc).map((b) => b.id);
+    expect(names(true)).toEqual(['car', 'rent', 'phone', 'done']);
+    expect(names(false)).toEqual(['phone', 'rent', 'car', 'done']);
   });
 });
 
