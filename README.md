@@ -9,7 +9,7 @@ A bill tracker for two partners. It splits shared bills by each partner's share 
 - **This week:** each partner's amount for the week, bills due, overdue bills, and approvals waiting for you.
 - **Payment reminders:** any bill that's due today or overdue shows up at the top of This week with a *Confirm paid* button, and counts toward the badge on the tab. The app never moves money; it only records what you confirm (autopay bills are skipped).
 - **Smoothed weekly amounts (default):** shared monthly bills × 12 ÷ 52 every week, plus any one-time bills due that week. Each partner deposits their income share into a shared bill account. You can switch to *pay as due* in Settings.
-- **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, and then chooses how the average is calculated: *Automatic* adds up their latest month's worth of paychecks, *By paycheck* takes the average of those paychecks × paychecks per year ÷ 12. A month's worth depends on how often they're paid: weekly 4, every 2 weeks 2, twice a month 2, monthly 1. Until that many are logged, the usual paycheck is used.
+- **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, and their income becomes the average of their latest month's worth of paychecks × paychecks per year ÷ 12 (*Automatic* and *By paycheck* currently calculate the same way). A month's worth depends on how often they're paid: weekly 4, every 2 weeks 2, twice a month 2, monthly 1. Until that many are logged, the usual paycheck is used.
 - **Left after bills:** on This week, each partner sees what's left of their income this week and this month after their share of shared bills and their own personal bills.
 - **Custom split:** instead of splitting by income, either partner can propose their own percentage on the Income tab. It applies once the other partner approves, and going back to the income split needs approval too. A partner leaving resets it.
 - **Personal bills:** all bills start shared. Either partner can request to make a bill personal (or shared again), and the other partner must approve. The database enforces this, so it can't be skipped.
@@ -107,11 +107,11 @@ tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) an
 | Thing | Rule |
 |---|---|
 | Monthly income (fixed) | paycheck × (52 weekly, 26 biweekly, 24 twice-a-month, 12 monthly) ÷ 12 |
-| Monthly income (logged) | latest month's worth of paychecks (weekly 4, biweekly 2, twice-a-month 2, monthly 1). Automatic: their sum. By paycheck: their average × paychecks per year ÷ 12. Falls back to the usual paycheck until that many are logged |
+| Monthly income (logged) | latest month's worth of paychecks (weekly 4, biweekly 2, twice-a-month 2, monthly 1), averaged × paychecks per year ÷ 12 (Automatic and By paycheck alike). Falls back to the usual paycheck until that many are logged |
 | Income share | your monthly income ÷ combined monthly income (50/50 if neither has income entered) |
 | Bill per month | weekly × 52/12 · biweekly × 26/12 · monthly × 1 · quarterly ÷ 3 · yearly ÷ 12 · one-time counts only in the week it's due |
 | Smoothed weekly | shared bills per month × 12 ÷ 52 + one-time shared bills due this week |
-| Left after bills | income − your split of shared bills due − your personal bills due, for this Sun–Sat week and this calendar month. Bills count paid or not; a paid bill counts at the amount paid. Month uses monthly income (an average month, not actual paydays); week uses monthly × 12 ÷ 52, or for *Automatic* the average logged paycheck × paychecks per year ÷ 52 |
+| Left after bills | income − your split of shared bills due − your personal bills due, for this Sun–Sat week and this calendar month. Bills count paid or not; a paid bill counts at the amount paid. Month uses monthly income (an average month, not actual paydays); week uses monthly × 12 ÷ 52 |
 | Running balance | (deposits + shared bills you paid directly) − your income share of everything both of you put in. The two balances always add up to $0. |
 
 Money is stored as whole cents, so totals never drift. Splits are rounded so the two parts always add up exactly to the total.

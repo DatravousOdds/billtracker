@@ -1,6 +1,6 @@
 import type { Bill, Contribution, Household, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
 import { addDays, weekStart } from './dates';
-import { PER_YEAR, monthlyIncome, type IncomeResult } from './income';
+import { monthlyIncome, type IncomeResult } from './income';
 import { splitByRatio } from './money';
 import { dueDates, monthlyEquivalent } from './recurrence';
 
@@ -157,13 +157,8 @@ export function leftover(
   const sharedTotal = due.filter((o) => o.bill.owner_id === null).reduce((s, o) => s + cost(o), 0);
   const parts = splitByRatio(sharedTotal, shares.map((s) => s.ratio));
   return shares.map((s, i) => {
-    const { monthlyCents, source, paychecksUsed } = s.income;
-    // Automatic averaging sums n checks (4 weekly / 2 biweekly) rather than an average month,
-    // so a week comes from the average check × checks per year instead of monthly × 12 ÷ 52.
-    const weekly = source === 'auto'
-      ? (monthlyCents / paychecksUsed) * PER_YEAR[s.member.pay_frequency] / 52
-      : (monthlyCents * 12) / 52;
-    const incomeCents = Math.round(period === 'month' ? monthlyCents : weekly);
+    const { monthlyCents } = s.income;
+    const incomeCents = Math.round(period === 'month' ? monthlyCents : (monthlyCents * 12) / 52);
     const personalCents = due
       .filter((o) => o.bill.owner_id === s.member.user_id)
       .reduce((sum, o) => sum + cost(o), 0);

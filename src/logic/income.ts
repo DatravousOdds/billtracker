@@ -33,9 +33,8 @@ export const paychecksNeeded = (f: PayFrequency) => Math.floor(PER_YEAR[f] / 12)
 /**
  * A member's monthly income.
  * Fixed mode: usual paycheck converted to monthly.
- * Per-paycheck mode uses the latest month's worth of logged checks:
- *   auto         = their sum
- *   per_paycheck = their average × paychecks per year ÷ 12
+ * Per-paycheck mode: the average of the latest month's worth of logged checks × paychecks per year ÷ 12
+ * (automatic and by paycheck both), or the usual paycheck until that many are logged.
  * Checks dated after `today` are ignored until their date arrives.
  */
 export function monthlyIncome(member: Member, paychecks: Paycheck[], today: ISODate): IncomeResult {
@@ -48,7 +47,9 @@ export function monthlyIncome(member: Member, paychecks: Paycheck[], today: ISOD
     .sort((a, b) => b.paid_on.localeCompare(a.paid_on));
   if (logged.length < n) return { monthlyCents: fixed, source: 'fallback', paychecksUsed: logged.length };
   const total = logged.slice(0, n).reduce((s, p) => s + p.amount_cents, 0);
-  return member.paycheck_average === 'per_paycheck'
-    ? { monthlyCents: monthlyFromPaycheck(total / n, member.pay_frequency), source: 'per_paycheck', paychecksUsed: n }
-    : { monthlyCents: total, source: 'auto', paychecksUsed: n };
+  return {
+    monthlyCents: monthlyFromPaycheck(total / n, member.pay_frequency),
+    source: member.paycheck_average === 'per_paycheck' ? 'per_paycheck' : 'auto',
+    paychecksUsed: n,
+  };
 }
