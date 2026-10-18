@@ -121,8 +121,8 @@ function openBillSheet(bill: Bill | null) {
           <input name="start_date" type="date" required min="1900-01-01" max="9999-12-31" value="${esc(bill?.start_date ?? todayISO())}">
         </label>
         <label>Category
-          <input name="category" list="categories" value="${esc(bill?.category ?? 'Other')}">
-          <datalist id="categories">${CATEGORIES.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+          <input name="category" list="categories" value="${esc(bill?.category ?? '')}" placeholder="Other">
+          <datalist id="categories">${[...new Set([...CATEGORIES, ...s.bills.map((b) => b.category)])].map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
         </label>
       </div>
       ${bill ? '' : '<p class="muted small" data-past-hint hidden>This date has passed. It will show as overdue until you confirm it\'s paid.</p>'}
