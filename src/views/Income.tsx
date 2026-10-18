@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { formatShort, todayISO } from '../logic/dates';
-import { FREQUENCY_LABEL, PER_YEAR, paychecksNeeded } from '../logic/income';
+import { addDays, formatShort, todayISO } from '../logic/dates';
+import { FREQUENCY_LABEL, PER_YEAR, paychecksNeeded, paydays } from '../logic/income';
 import { formatCents, parseDollars, centsToInput, splitByRatio } from '../logic/money';
 import { monthlySharedTotal, type Share } from '../logic/split';
 import type { PayFrequency } from '../types';
@@ -116,6 +116,8 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
       ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use the average (${income.paychecksUsed} so far) — using usual pay below`
       : `${formatCents(m.pay_amount_cents)} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
   const hl = (target: GuideTarget) => (highlight === target ? ' guide-on' : '');
+  // Next payday on or after today, worked out from the one saved.
+  const nextPayday = paydays(m, todayISO(), addDays(todayISO(), 62))[0] ?? null;
 
   const checkList = checks.length > 0 && (
     <ul className="list compact">
@@ -139,8 +141,12 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
     const f = new FormData(e.currentTarget);
     const amount = parseDollars(String(f.get('amount')));
     if (amount === null) return toast('Enter an amount like 1,250.00', 'error');
+    const payday = String(f.get('payday')) || null;
     runPay(async () => {
-      await updateMember(m.user_id, { pay_amount_cents: amount, pay_frequency: f.get('frequency') as PayFrequency });
+      // Only send payday when it was changed, so Save pay keeps working before pay-schedule.sql has run.
+      await updateMember(m.user_id, {
+        pay_amount_cents: amount, pay_frequency: f.get('frequency') as PayFrequency, ...(payday !== nextPayday && { payday }),
+      });
       toast('Pay saved');
     });
   };
@@ -172,6 +178,7 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
           <p className="small">
             {perPay ? 'Logs each paycheck' : 'Fixed pay'} · paid {FREQUENCY_LABEL[m.pay_frequency].toLowerCase()}
             {m.pay_amount_cents ? ` · usual paycheck ${formatCents(m.pay_amount_cents)}` : ''}
+            {nextPayday ? ` · next payday ${formatShort(nextPayday)}` : ''}
           </p>
           {perPay && checkList}
         </>
@@ -189,7 +196,7 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
           </div>
 
           {/* Keyed on the saved values so the fields refresh after a save. */}
-          <form className="form pay-form" onSubmit={savePay} key={`${m.pay_amount_cents}|${m.pay_frequency}`}>
+          <form className="form pay-form" onSubmit={savePay} key={`${m.pay_amount_cents}|${m.pay_frequency}|${m.payday}`}>
             <div className="grid2">
               <label className={hl('amount')}>{perPay ? 'Usual paycheck (backup)' : 'Paycheck amount'}
                 <input name="amount" inputMode="decimal" placeholder="1,250.00" defaultValue={m.pay_amount_cents ? centsToInput(m.pay_amount_cents) : ''} />
@@ -200,6 +207,10 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
                 </select>
               </label>
             </div>
+            <label>Next payday (optional)
+              <input name="payday" type="date" max={addDays(todayISO(), 364)} defaultValue={nextPayday ?? ''} />
+              <span className="muted small">Deposits are only asked for in weeks you get paid.</span>
+            </label>
             <button className={`btn ghost sm${hl('save')}`} type="submit" disabled={savingPay}>Save pay</button>
           </form>
 

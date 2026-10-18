@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { addDays, addMonths, formatShort, todayISO, toDate } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import { ledger, leftover, needsConfirming, weekPlan, type Leftover } from '../logic/split';
+import { depositDue, ledger, leftover, needsConfirming, weekPlan, type Leftover } from '../logic/split';
 import { addContribution, decideRequest, memberName, shares } from '../store';
 import type { BillRequest } from '../types';
 import { useAppState, useBusy } from '../ui/hooks';
@@ -26,8 +26,9 @@ export function DashboardView() {
   const pending = s.requests.filter((r) => r.status === 'pending');
 
   // ----- Who pays what -----
-  const deposited = (memberId: string) => s.contributions
-    .filter((c) => c.member_id === memberId && c.week_start === plan.weekStart)
+  // A payday deposit can cover earlier weeks, so anything already put in for those weeks counts too.
+  const deposited = (memberId: string, fromWeek: string) => s.contributions
+    .filter((c) => c.member_id === memberId && c.week_start >= fromWeek && c.week_start <= plan.weekStart)
     .reduce((sum, c) => sum + c.amount_cents, 0);
 
   const noIncome = sh.every((x) => x.income.monthlyCents === 0);
@@ -99,8 +100,9 @@ export function DashboardView() {
         </div>
         <div className="people">
           {plan.perMember.map((p) => {
-            const done = deposited(p.member.user_id);
             const isMe = p.member.user_id === s.userId;
+            const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh);
+            const done = deposited(p.member.user_id, due.fromWeek);
             // contributions are sorted newest first, so the first match is the partner's latest.
             const last = !isMe && smoothed ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
             return (
@@ -111,11 +113,13 @@ export function DashboardView() {
                 </div>
                 <div className="person-amt">{formatCents(p.sharedCents)}</div>
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
-                {done > 0 && done < p.sharedCents && <div className="muted small">{formatCents(done)} deposited so far</div>}
+                {smoothed && due.weeks > 1 && <div className="muted small">{formatCents(due.cents)} to deposit · covers {due.weeks} weeks</div>}
+                {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
                 {!smoothed ? null
-                  : done >= p.sharedCents && p.sharedCents > 0 ? <span className="pill paid">✓ Deposited</span>
-                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit(p.sharedCents - done)}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
+                  : done >= due.cents && done > 0 ? <span className="pill paid">✓ Deposited</span>
+                  : due.weeks === 0 ? <span className="muted small">{due.nextPayday ? `Payday ${formatShort(due.nextPayday)} · deposit then` : 'No payday this week · no deposit'}</span>
+                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit(due.cents - done)}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
                   : <span className="muted small">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
                 {last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
               </div>

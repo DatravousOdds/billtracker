@@ -1,6 +1,6 @@
 import type { Bill, Contribution, Household, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
 import { addDays, weekStart } from './dates';
-import { monthlyIncome, type IncomeResult } from './income';
+import { monthlyIncome, paydays, type IncomeResult } from './income';
 import { splitByRatio } from './money';
 import { dueDates, monthlyEquivalent } from './recurrence';
 
@@ -130,6 +130,48 @@ export function weekPlan(
         .reduce((sum, o) => sum + o.bill.amount_cents, 0),
     })),
   };
+}
+
+export interface DepositDue {
+  cents: number;
+  /** How many weeks of their share this deposit covers (0 in a week without a payday). */
+  weeks: number;
+  /** Set in a week without a payday: when they're next paid. */
+  nextPayday: ISODate | null;
+  /** Start of the first week covered; deposits filed from then on count toward this one. */
+  fromWeek: ISODate;
+}
+
+/**
+ * What a partner should deposit in the week containing `date`.
+ * Without a saved payday it's this week's share. With one, nothing is asked in weeks
+ * without a payday, and a payday week covers every week since the last payday week.
+ */
+export function depositDue(
+  member: Member,
+  date: ISODate,
+  mode: WeeklyMode,
+  bills: Bill[],
+  payments: Payment[],
+  shares: Share[],
+): DepositDue {
+  const share = (d: ISODate) =>
+    weekPlan(d, mode, bills, payments, shares).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
+  const start = weekStart(date);
+  const end = addDays(start, 6);
+  const weekly = { cents: share(start), weeks: 1, nextPayday: null, fromWeek: start };
+  if (!member.payday) return weekly;
+  if (!paydays(member, start, end).length) {
+    const next = paydays(member, addDays(end, 1), addDays(end, 62))[0];
+    // Every schedule pays within 62 days; no payday means a bad saved date, so keep asking weekly.
+    return next ? { cents: 0, weeks: 0, nextPayday: next, fromWeek: start } : weekly;
+  }
+  // Walk back to the last payday week (at most 6 weeks; monthly pay is the longest gap).
+  let weeks = 1;
+  while (weeks < 6 && !paydays(member, addDays(start, -7 * weeks), addDays(start, -7 * weeks + 6)).length) weeks++;
+  let cents = 0;
+  for (let i = 0; i < weeks; i++) cents += share(addDays(start, -7 * i));
+  return { cents, weeks, nextPayday: null, fromWeek: addDays(start, -7 * (weeks - 1)) };
 }
 
 export interface Leftover {
