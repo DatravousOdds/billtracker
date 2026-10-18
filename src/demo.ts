@@ -27,8 +27,8 @@ export function demoState(): State {
   const start = (day: number) => addMonths(thisMonth(day), -6);
 
   const members: Member[] = [
-    { user_id: ALEX, household_id: H, display_name: 'Alex', pay_amount_cents: 200000, pay_frequency: 'biweekly', income_mode: 'fixed', paycheck_average: 'auto', created_at: '1' },
-    { user_id: SAM, household_id: H, display_name: 'Sam', pay_amount_cents: 65000, pay_frequency: 'weekly', income_mode: 'per_paycheck', paycheck_average: 'auto', created_at: '2' },
+    { user_id: ALEX, household_id: H, display_name: 'Alex', pay_amount_cents: 200000, pay_frequency: 'biweekly', income_mode: 'fixed', paycheck_average: 'auto', payday: addDays(wk, 12), created_at: '1' },
+    { user_id: SAM, household_id: H, display_name: 'Sam', pay_amount_cents: 65000, pay_frequency: 'weekly', income_mode: 'per_paycheck', paycheck_average: 'auto', payday: null, created_at: '2' },
   ];
 
   const b = (name: string, cents: number, category: string, recurrence: Bill['recurrence'], start_date: string, extra: Partial<Bill> = {}): Bill => ({

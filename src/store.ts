@@ -246,7 +246,7 @@ export async function deleteContribution(id: string) {
   await reload();
 }
 
-export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode' | 'paycheck_average'>>) {
+export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode' | 'paycheck_average' | 'payday'>>) {
   if (isDemo) {
     return local((s) => Object.assign(s.members.find((m) => m.user_id === userId)!, patch),
       (s) => `${me(s)} updated ${memberName(userId)}'s income settings`);

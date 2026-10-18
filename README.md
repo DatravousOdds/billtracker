@@ -28,7 +28,7 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
 ## Set up for real
 
 1. **Create a Supabase project** (the free tier is fine) at https://supabase.com.
-2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql`, `supabase/own-income.sql` and `supabase/custom-split.sql` the same way (all safe to re-run; existing projects need them too).
+2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql`, `supabase/own-income.sql`, `supabase/custom-split.sql` and `supabase/pay-schedule.sql` the same way (all safe to re-run; existing projects need them too).
 3. **Auth settings:**
    - **Send email through Resend.** Supabase's built-in email only reaches your own team's addresses and allows just a few emails an hour, so your partner's confirmation email may never arrive. In [Resend](https://resend.com), verify a domain you own (**Domains → Add domain**) and create an API key. Then in Supabase go to **Authentication → Emails → SMTP Settings**, turn on custom SMTP, and enter: host `smtp.resend.com`, port `465`, username `resend`, password = your Resend API key, and a sender address on your verified domain (e.g. `bills@yourdomain.com`).
    - **Redirect URLs.** Under **Authentication → URL Configuration**, set **Site URL** to where the app runs (for now `http://localhost:5173`) and add it, plus any deployed URL, to **Redirect URLs**. The confirmation link sends people back there.
@@ -92,6 +92,7 @@ supabase/admin.sql       admin/support roles: app_roles table, staff RLS policie
 supabase/paycheck-average.sql  members.paycheck_average: Automatic vs By paycheck for logged income
 supabase/own-income.sql        each partner edits only their own income and paychecks (both can view)
 supabase/custom-split.sql      propose_split()/decide_split(): a custom % split both partners approve
+supabase/pay-schedule.sql      members.payday: deposits are asked for only in payday weeks
 src/logic/               pure functions (unit-tested): money, dates, recurrence, income, split, ledger
 src/store.ts             loads household data, realtime sync, all reads/writes (+ demo-mode versions)
 src/App.tsx              sign-in routing, app shell and tab navigation

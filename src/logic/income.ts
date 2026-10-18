@@ -1,4 +1,6 @@
 import type { ISODate, Member, PayFrequency, Paycheck } from '../types';
+import { addDays, addMonths } from './dates';
+import { dueDates } from './recurrence';
 
 /** Paychecks per year for each pay schedule. */
 export const PER_YEAR: Record<PayFrequency, number> = {
@@ -52,4 +54,21 @@ export function monthlyIncome(member: Member, paychecks: Paycheck[], today: ISOD
     source: member.paycheck_average === 'per_paycheck' ? 'per_paycheck' : 'auto',
     paychecksUsed: n,
   };
+}
+
+/**
+ * A member's paydays between `from` and `to` (both inclusive), worked out from their one saved payday.
+ * Empty if they haven't saved one.
+ */
+export function paydays(member: Pick<Member, 'payday' | 'pay_frequency'>, from: ISODate, to: ISODate): ISODate[] {
+  const p = member.payday;
+  if (!p) return [];
+  // dueDates never goes before its start, so start a year early: a payday saved for next week still counts back.
+  if (member.pay_frequency === 'weekly' || member.pay_frequency === 'biweekly') {
+    return dueDates({ recurrence: member.pay_frequency, start_date: addDays(p, -364) }, from, to);
+  }
+  const monthly = (start: ISODate) => dueDates({ recurrence: 'monthly', start_date: addMonths(start, -12) }, from, to);
+  if (member.pay_frequency === 'monthly') return monthly(p);
+  // shortcut: twice a month = the saved day and 15 days later; "15th and last day" schedules drift by a day or two, upgrade if someone needs exact dates.
+  return [...monthly(p), ...monthly(addDays(p, 15))].sort();
 }

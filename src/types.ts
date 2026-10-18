@@ -28,6 +28,8 @@ export interface Member {
   pay_frequency: PayFrequency;
   income_mode: IncomeMode;
   paycheck_average: PaycheckAverage;
+  /** Any one payday; the others follow from pay_frequency. null = deposit every week. */
+  payday: ISODate | null;
   created_at: string;
 }
 

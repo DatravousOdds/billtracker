@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { addMonths, weekStart } from '../src/logic/dates';
-import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded } from '../src/logic/income';
+import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded, paydays } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
 import { dueDates, sortByNextDue } from '../src/logic/recurrence';
-import { incomeShares, ledger, leftover, needsConfirming, weekPlan } from '../src/logic/split';
+import { depositDue, incomeShares, ledger, leftover, needsConfirming, weekPlan } from '../src/logic/split';
 import type { Bill, Member, Paycheck } from '../src/types';
 
 const member = (id: string, pay: number, freq: Member['pay_frequency'], mode: Member['income_mode'] = 'fixed'): Member => ({
   user_id: id, household_id: 'h', display_name: id, pay_amount_cents: pay, pay_frequency: freq,
-  income_mode: mode, paycheck_average: 'auto', created_at: '',
+  income_mode: mode, paycheck_average: 'auto', payday: null, created_at: '',
 });
 const bill = (id: string, amount: number, recurrence: Bill['recurrence'], start: string, owner: string | null = null): Bill => ({
   id, household_id: 'h', name: id, amount_cents: amount, category: 'x', recurrence, start_date: start,
@@ -115,6 +115,24 @@ describe('income', () => {
   });
 });
 
+describe('paydays', () => {
+  it('counts back from a payday saved in the future', () => {
+    expect(paydays({ payday: '2026-10-23', pay_frequency: 'biweekly' }, '2026-10-01', '2026-10-31'))
+      .toEqual(['2026-10-09', '2026-10-23']);
+  });
+  it('monthly on the 31st falls back to the end of short months', () => {
+    expect(paydays({ payday: '2026-01-31', pay_frequency: 'monthly' }, '2026-02-01', '2026-03-31'))
+      .toEqual(['2026-02-28', '2026-03-31']);
+  });
+  it('twice a month gives two paydays a month', () => {
+    expect(paydays({ payday: '2026-10-01', pay_frequency: 'semimonthly' }, '2026-11-01', '2026-11-30'))
+      .toEqual(['2026-11-01', '2026-11-16']);
+  });
+  it('none without a saved payday', () => {
+    expect(paydays({ payday: null, pay_frequency: 'weekly' }, '2026-10-01', '2026-10-31')).toEqual([]);
+  });
+});
+
 describe('split', () => {
   const a = member('a', 400000, 'monthly');
   const b = member('b', 250000, 'monthly');
@@ -145,6 +163,16 @@ describe('split', () => {
     expect(plan.perMember[0].sharedCents + plan.perMember[1].sharedCents).toBe(56000);
     expect(plan.perMember[1].personalCents).toBe(40000);
     expect(plan.perMember[0].personalCents).toBe(0);
+  });
+
+  it('deposit is asked for only in payday weeks, covering the weeks since the last one', () => {
+    const bills = [bill('rent', 130000, 'monthly', '2026-01-01')];
+    const weekly = weekPlan('2026-10-13', 'smoothed', bills, [], shares).perMember[1].sharedCents;
+    const paid = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-23' };
+    // Week of Oct 11–17 has no payday; Oct 23 is next week.
+    expect(depositDue(paid, '2026-10-13', 'smoothed', bills, [], shares)).toEqual({ cents: 0, weeks: 0, nextPayday: '2026-10-23' });
+    expect(depositDue(paid, '2026-10-20', 'smoothed', bills, [], shares)).toEqual({ cents: weekly * 2, weeks: 2, nextPayday: null });
+    expect(depositDue(b, '2026-10-13', 'smoothed', bills, [], shares)).toEqual({ cents: weekly, weeks: 1, nextPayday: null });
   });
 
   it('due week: only what is due', () => {
