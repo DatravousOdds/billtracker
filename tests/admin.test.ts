@@ -6,6 +6,7 @@ import schemaSql from '../supabase/schema.sql?raw';
 import leaveSql from '../supabase/leave.sql?raw';
 import adminSql from '../supabase/admin.sql?raw';
 import paycheckAverageSql from '../supabase/paycheck-average.sql?raw';
+import ownIncomeSql from '../supabase/own-income.sql?raw';
 
 // The bits of Supabase the schema relies on: API roles, auth.users, auth.uid(), default grants.
 const SUPABASE_STUB = `
@@ -82,7 +83,7 @@ async function count(sql: string, params: unknown[] = []) {
 beforeAll(async () => {
   db = await PGlite.create({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
-  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql]) await db.exec(sql);
+  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql]) await db.exec(sql);
 }, 60_000);
 
 describe('normal users', () => {
@@ -219,11 +220,11 @@ describe('paycheck-average.sql', () => {
   it('lets a partner choose how their average is calculated, and nothing else', async () => {
     const h = await household('Alex', 'Sam');
     await as(h.ids[0]);
-    expect(await rows('select paycheck_average from members where user_id = $1', [h.ids[1]])).toEqual([{ paycheck_average: 'auto' }]);
-    await db.query(`update members set paycheck_average = 'per_paycheck' where user_id = $1`, [h.ids[1]]);
-    expect(await rows('select paycheck_average from members where user_id = $1', [h.ids[1]])).toEqual([{ paycheck_average: 'per_paycheck' }]);
-    await expect(db.query(`update members set paycheck_average = 'weekly' where user_id = $1`, [h.ids[1]])).rejects.toThrow(/check constraint/);
-    await db.query(`update members set paycheck_average = 'per_paycheck', display_name = 'Sammy' where user_id = $1`, [h.ids[1]]); // unchanged: no log
+    expect(await rows('select paycheck_average from members where user_id = $1', [h.ids[0]])).toEqual([{ paycheck_average: 'auto' }]);
+    await db.query(`update members set paycheck_average = 'per_paycheck' where user_id = $1`, [h.ids[0]]);
+    expect(await rows('select paycheck_average from members where user_id = $1', [h.ids[0]])).toEqual([{ paycheck_average: 'per_paycheck' }]);
+    await expect(db.query(`update members set paycheck_average = 'weekly' where user_id = $1`, [h.ids[0]])).rejects.toThrow(/check constraint/);
+    await db.query(`update members set paycheck_average = 'per_paycheck', display_name = 'Sammy' where user_id = $1`, [h.ids[0]]); // unchanged: no log
     expect(await count(`activity_log where household_id = $1 and message like '%paycheck average%'`, [h.hid])).toBe(1);
   });
 });
@@ -236,4 +237,27 @@ describe('admin.sql', () => {
     await expect(fresh.exec(adminSql)).rejects.toThrow('Run supabase/leave.sql before admin.sql');
     await fresh.close();
   }, 60_000);
+});
+
+describe('own-income.sql', () => {
+  it('lets each partner change only their own income and paychecks, but see both', async () => {
+    const h = await household('Alex', 'Sam');
+    const [alex, sam] = h.ids;
+    await as(sam);
+    await db.query(`insert into paychecks (household_id, member_id, amount_cents, paid_on) values ($1, $2, 65000, '2026-10-16')`, [h.hid, sam]);
+
+    await as(alex);
+    expect((await db.query('update members set pay_amount_cents = 200000 where user_id = $1', [alex])).affectedRows).toBe(1);
+    expect((await db.query('update members set pay_amount_cents = 1 where user_id = $1', [sam])).affectedRows).toBe(0);
+    await expect(db.query(`insert into paychecks (household_id, member_id, amount_cents, paid_on) values ($1, $2, 1, '2026-10-16')`, [h.hid, sam]))
+      .rejects.toThrow(/row-level security/);
+    await db.query(`insert into paychecks (household_id, member_id, amount_cents, paid_on) values ($1, $2, 200000, '2026-10-16')`, [h.hid, alex]);
+    expect((await db.query('delete from paychecks where member_id = $1', [sam])).affectedRows).toBe(0);
+    expect(await rows('select member_id from paychecks where household_id = $1', [h.hid])).toHaveLength(2);
+
+    await as(sam);
+    expect(await rows('select member_id from paychecks where household_id = $1', [h.hid])).toHaveLength(2);
+    expect(await count('members where user_id = $1 and pay_amount_cents = 200000', [alex])).toBe(1);
+    expect(await count('members where user_id = $1 and pay_amount_cents = 0', [sam])).toBe(1);
+  });
 });

@@ -61,6 +61,10 @@ describe('recurrence', () => {
     expect(dueDates({ recurrence: 'once', start_date: '2026-10-12' }, '2026-10-11', '2026-10-17')).toEqual(['2026-10-12']);
     expect(dueDates({ recurrence: 'monthly', start_date: '2026-12-01' }, '2026-10-01', '2026-10-31')).toEqual([]);
   });
+  it('ignores start dates without a 4-digit year instead of looping', () => {
+    expect(dueDates({ recurrence: 'monthly', start_date: '10000-01-01' }, '2026-08-19', '2026-10-17')).toEqual([]);
+    expect(dueDates({ recurrence: 'weekly', start_date: '' }, '2026-08-19', '2026-10-17')).toEqual([]);
+  });
 });
 
 describe('income', () => {
@@ -154,5 +158,10 @@ describe('split', () => {
     expect(list.map((o) => `${o.bill.id} ${o.date}`)).toEqual([
       'water 2026-08-12', 'rent 2026-09-01', 'phone 2026-09-11', 'water 2026-09-12', 'phone 2026-10-11',
     ]);
+  });
+
+  it('needs confirming: a bill added with a past due date is unpaid from that date', () => {
+    const late = { ...bill('gas', 5000, 'monthly', '2026-09-10'), created_at: '2026-10-18T12:00:00Z' };
+    expect(needsConfirming([late], [], '2026-10-18').map((o) => o.date)).toEqual(['2026-09-10', '2026-10-10']);
   });
 });

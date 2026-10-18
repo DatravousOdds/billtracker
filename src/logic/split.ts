@@ -43,12 +43,11 @@ export function occurrences(bills: Bill[], payments: Payment[], from: ISODate, t
 
 /**
  * Bills due today or earlier (up to 60 days back) that nobody has confirmed paid yet.
- * Autopay bills are left out, and so are due dates from before the bill was added
- * (so adding a bill with an old first-due date doesn't flood the list).
+ * Autopay bills are left out. A bill added with a past due date counts as unpaid from that date.
  */
 export function needsConfirming(bills: Bill[], payments: Payment[], today: ISODate): Occurrence[] {
   return occurrences(bills, payments, addDays(today, -60), today)
-    .filter((o) => !o.payment && !o.bill.autopay && o.date >= o.bill.created_at.slice(0, 10));
+    .filter((o) => !o.payment && !o.bill.autopay);
 }
 
 /** Average shared bills per month (cents). Personal and paused bills are left out. */

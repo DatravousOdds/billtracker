@@ -118,13 +118,14 @@ function openBillSheet(bill: Bill | null) {
       </div>
       <div class="grid2">
         <label>${bill ? 'First due date' : 'Next due date'}
-          <input name="start_date" type="date" required value="${esc(bill?.start_date ?? todayISO())}">
+          <input name="start_date" type="date" required min="1900-01-01" max="9999-12-31" value="${esc(bill?.start_date ?? todayISO())}">
         </label>
         <label>Category
           <input name="category" list="categories" value="${esc(bill?.category ?? 'Other')}">
           <datalist id="categories">${CATEGORIES.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
         </label>
       </div>
+      ${bill ? '' : '<p class="muted small" data-past-hint hidden>This date has passed. It will show as overdue until you confirm it\'s paid.</p>'}
       <label class="check"><input type="checkbox" name="autopay" ${bill?.autopay ? 'checked' : ''}> Autopay</label>
       ${bill ? `<label class="check"><input type="checkbox" name="active" ${bill.active ? 'checked' : ''}> Active (uncheck to pause)</label>` : ''}
 
@@ -135,6 +136,17 @@ function openBillSheet(bill: Bill | null) {
     </form>`) as HTMLFormElement;
 
   const sh = sheet(bill ? 'Edit bill' : 'Add bill', body);
+  // Matches needsConfirming: only a missed due date in the last 60 days, and never on autopay, shows as overdue.
+  const pastHint = body.querySelector<HTMLElement>('[data-past-hint]');
+  body.addEventListener('input', () => {
+    if (!pastHint) return;
+    const f = new FormData(body);
+    const today = todayISO();
+    const start_date = String(f.get('start_date'));
+    const missed = !!start_date
+      && dueDates({ recurrence: f.get('recurrence') as Recurrence, start_date }, addDays(today, -60), addDays(today, -1)).length > 0;
+    pastHint.hidden = !missed || f.get('autopay') === 'on';
+  });
 
   body.addEventListener('submit', (e) => {
     e.preventDefault();

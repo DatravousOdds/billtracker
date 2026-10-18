@@ -11,7 +11,7 @@ A bill tracker for two partners. It splits shared bills by each partner's share 
 - **Smoothed weekly amounts (default):** shared monthly bills × 12 ÷ 52 every week, plus any one-time bills due that week. Each partner deposits their income share into a shared bill account. You can switch to *pay as due* in Settings.
 - **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, and then chooses how the average is calculated: *Automatic* adds up their latest month's worth of paychecks, *By paycheck* takes the average of those paychecks × paychecks per year ÷ 12. A month's worth depends on how often they're paid: weekly 4, every 2 weeks 2, twice a month 2, monthly 1. Until that many are logged, the usual paycheck is used.
 - **Personal bills:** all bills start shared. Either partner can request to make a bill personal (or shared again), and the other partner must approve. The database enforces this, so it can't be skipped.
-- **Both phones can edit everything,** and changes appear on the other phone right away.
+- **Both phones can edit everything except income:** each partner changes only their own pay and paychecks (the partner's are view-only). Changes appear on the other phone right away.
 - **History:** payments, deposits, a running balance (who has covered more than their share), and an activity log of who changed what.
 
 ## Try the demo (no setup)
@@ -26,7 +26,7 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
 ## Set up for real
 
 1. **Create a Supabase project** (the free tier is fine) at https://supabase.com.
-2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql` the same way (safe to re-run; existing projects need it too).
+2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql` and `supabase/own-income.sql` the same way (both safe to re-run; existing projects need them too).
 3. **Auth settings:**
    - **Send email through Resend.** Supabase's built-in email only reaches your own team's addresses and allows just a few emails an hour, so your partner's confirmation email may never arrive. In [Resend](https://resend.com), verify a domain you own (**Domains → Add domain**) and create an API key. Then in Supabase go to **Authentication → Emails → SMTP Settings**, turn on custom SMTP, and enter: host `smtp.resend.com`, port `465`, username `resend`, password = your Resend API key, and a sender address on your verified domain (e.g. `bills@yourdomain.com`).
    - **Redirect URLs.** Under **Authentication → URL Configuration**, set **Site URL** to where the app runs (for now `http://localhost:5173`) and add it, plus any deployed URL, to **Redirect URLs**. The confirmation link sends people back there.
@@ -88,6 +88,7 @@ supabase/schema.sql      tables, row-level security, approval + invite functions
 supabase/leave.sql       leave_household(): a partner leaves (last one out deletes the household)
 supabase/admin.sql       admin/support roles: app_roles table, staff RLS policies, admin functions
 supabase/paycheck-average.sql  members.paycheck_average: Automatic vs By paycheck for logged income
+supabase/own-income.sql        each partner edits only their own income and paychecks (both can view)
 src/logic/               pure functions (unit-tested): money, dates, recurrence, income, split, ledger
 src/store.ts             loads household data, realtime sync, all reads/writes (+ demo-mode versions)
 src/views/               one file per screen

@@ -17,6 +17,9 @@ const DAY_STEP: Partial<Record<Recurrence, number>> = { weekly: 7, biweekly: 14 
 /** All due dates of a bill between `from` and `to` (both inclusive). */
 export function dueDates(bill: Pick<Bill, 'recurrence' | 'start_date'>, from: ISODate, to: ISODate): ISODate[] {
   const start = bill.start_date;
+  // Dates are compared as strings, which only works for 4-digit years. A year like 10000
+  // would never pass `to` and loop for seconds before throwing.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return [];
   if (to < from || to < start) return [];
   const out: ISODate[] = [];
 

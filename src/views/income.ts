@@ -49,6 +49,17 @@ export function incomeView(): HTMLElement {
           ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use the average (${income.paychecksUsed} so far) — using usual pay below`
           : `${esc(formatCents(m.pay_amount_cents))} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
     const hl = (key: string) => showGuide && m.user_id === s.userId && step.target === key ? ' guide-on' : '';
+    // Only you can change your own income; your partner's card is read-only.
+    const mine = m.user_id === s.userId;
+    const checkList = checks.length ? `
+      <ul class="list compact">
+        ${checks.map((p) => `
+          <li class="occ">
+            <div class="occ-main"><div class="occ-sub">${esc(formatShort(p.paid_on))}</div></div>
+            <div class="occ-amt">${esc(formatCents(p.amount_cents))}</div>
+            ${mine ? `<button class="icon-btn" data-action="del-check" data-id="${esc(p.id)}" aria-label="Remove paycheck">✕</button>` : ''}
+          </li>`).join('')}
+      </ul>` : '';
 
     return `
       <div class="card member" data-member="${esc(m.user_id)}">
@@ -59,6 +70,9 @@ export function incomeView(): HTMLElement {
         <div class="person-amt">${esc(formatCents(Math.round(income.monthlyCents)))}<span class="muted small"> / month</span></div>
         <p class="muted small">${sourceNote}</p>
 
+        ${!mine ? `
+          <p class="small">${perPay ? 'Logs each paycheck' : 'Fixed pay'} · paid ${esc(FREQUENCY_LABEL[m.pay_frequency].toLowerCase())}${m.pay_amount_cents ? ` · usual paycheck ${esc(formatCents(m.pay_amount_cents))}` : ''}</p>
+          ${perPay ? checkList : ''}` : `
         <div class="seg full${hl('mode')}" role="group" aria-label="Income mode">
           <button class="${!perPay ? 'on' : ''}" data-action="mode" data-mode="fixed">Fixed</button>
           <button class="${perPay ? 'on' : ''}" data-action="mode" data-mode="per_paycheck">Log each paycheck</button>
@@ -96,15 +110,7 @@ export function incomeView(): HTMLElement {
             </div>
             <button class="btn primary sm" type="submit">Log paycheck</button>
           </form>
-          ${checks.length ? `
-            <ul class="list compact">
-              ${checks.map((p) => `
-                <li class="occ">
-                  <div class="occ-main"><div class="occ-sub">${esc(formatShort(p.paid_on))}</div></div>
-                  <div class="occ-amt">${esc(formatCents(p.amount_cents))}</div>
-                  <button class="icon-btn" data-action="del-check" data-id="${esc(p.id)}" aria-label="Remove paycheck">✕</button>
-                </li>`).join('')}
-            </ul>` : ''}` : ''}
+          ${checkList}` : ''}`}
       </div>`;
   }).join('');
 
