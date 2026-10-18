@@ -1,6 +1,6 @@
-import { formatShort, todayISO } from '../logic/dates';
+import { addDays, addMonths, formatShort, todayISO, toDate } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import { ledger, needsConfirming, weekPlan } from '../logic/split';
+import { ledger, leftover, needsConfirming, weekPlan, type Leftover } from '../logic/split';
 import { addContribution, decideRequest, getState, memberName, shares } from '../store';
 import { busy, esc, html, on, sheet, toast } from '../ui/dom';
 import { occurrenceHandlers, occurrenceRow, pct } from '../ui/parts';
@@ -79,6 +79,22 @@ export function dashboardView(): HTMLElement {
   const noIncome = sh.every((x) => x.income.monthlyCents === 0);
   const onlyOne = s.members.length < 2;
 
+  // ----- Left after bills -----
+  const monthStart = today.slice(0, 8) + '01';
+  const weekLeft = leftover(s.bills, s.payments, sh, plan.weekStart, plan.weekEnd, 'week');
+  const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month');
+  const monthName = toDate(monthStart).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+  const leftRow = (label: string, l: Leftover) => `
+    <div class="muted small">${label}</div>
+    <div class="person-amt${l.leftCents < 0 ? ' danger-text' : ''}">${esc(formatCents(l.leftCents))}</div>
+    <div class="muted small">${esc(formatCents(l.incomeCents))} income − ${esc(formatCents(l.sharedCents))} shared${l.personalCents ? ` − ${esc(formatCents(l.personalCents))} personal` : ''}</div>`;
+  const leftPeople = weekLeft.map((w, i) => `
+    <div class="person">
+      <span class="person-name">${esc(w.member.display_name)}${w.member.user_id === s.userId ? ' <span class="muted">(you)</span>' : ''}</span>
+      ${leftRow('This week', w)}
+      ${leftRow(`This month · ${monthName}`, monthLeft[i])}
+    </div>`).join('');
+
   // ----- Balance -----
   const ahead = led.balances.find((b) => b.balanceCents > 0);
   const balanceLine = ahead && s.members.length === 2
@@ -112,6 +128,12 @@ export function dashboardView(): HTMLElement {
           <span class="mode-tag">${smoothed ? 'Smoothed' : 'Pay as due'}</span>
         </div>
         <div class="people">${people}</div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow">Left after bills</div>
+        <div class="muted small">Income minus the bills due in each period, paid or not.${smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</div>
+        <div class="people">${leftPeople}</div>
       </div>
 
       <h2 class="section-title">Due this week</h2>

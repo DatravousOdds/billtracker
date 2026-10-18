@@ -1,6 +1,6 @@
 import type { Bill, Contribution, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
 import { addDays, weekStart } from './dates';
-import { monthlyIncome, type IncomeResult } from './income';
+import { PER_YEAR, monthlyIncome, type IncomeResult } from './income';
 import { splitByRatio } from './money';
 import { dueDates, monthlyEquivalent } from './recurrence';
 
@@ -119,6 +119,51 @@ export function weekPlan(
         .reduce((sum, o) => sum + o.bill.amount_cents, 0),
     })),
   };
+}
+
+export interface Leftover {
+  member: Member;
+  incomeCents: number;
+  sharedCents: number; // their split of shared bills due in the period
+  personalCents: number; // their own bills due in the period
+  leftCents: number; // can be negative
+}
+
+/**
+ * What each partner has left from a period's income after the bills actually due in it
+ * (paid or not; a paid bill counts at the amount actually paid).
+ */
+export function leftover(
+  bills: Bill[],
+  payments: Payment[],
+  shares: Share[],
+  from: ISODate,
+  to: ISODate,
+  period: 'week' | 'month',
+): Leftover[] {
+  const due = occurrences(bills, payments, from, to);
+  const cost = (o: Occurrence) => o.payment?.amount_cents ?? o.bill.amount_cents;
+  const sharedTotal = due.filter((o) => o.bill.owner_id === null).reduce((s, o) => s + cost(o), 0);
+  const parts = splitByRatio(sharedTotal, shares.map((s) => s.ratio));
+  return shares.map((s, i) => {
+    const { monthlyCents, source, paychecksUsed } = s.income;
+    // Automatic averaging sums n checks (4 weekly / 2 biweekly) rather than an average month,
+    // so a week comes from the average check × checks per year instead of monthly × 12 ÷ 52.
+    const weekly = source === 'auto'
+      ? (monthlyCents / paychecksUsed) * PER_YEAR[s.member.pay_frequency] / 52
+      : (monthlyCents * 12) / 52;
+    const incomeCents = Math.round(period === 'month' ? monthlyCents : weekly);
+    const personalCents = due
+      .filter((o) => o.bill.owner_id === s.member.user_id)
+      .reduce((sum, o) => sum + cost(o), 0);
+    return {
+      member: s.member,
+      incomeCents,
+      sharedCents: parts[i],
+      personalCents,
+      leftCents: incomeCents - parts[i] - personalCents,
+    };
+  });
 }
 
 export interface Balance {
