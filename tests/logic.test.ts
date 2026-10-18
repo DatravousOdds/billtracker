@@ -170,9 +170,9 @@ describe('split', () => {
       id: `p${i}`, household_id: 'h', member_id: 's', amount_cents, paid_on: `2026-10-0${i + 1}`,
     }));
     const sh = incomeShares([sam], checks, '2026-10-18');
-    expect(sh[0].income.monthlyCents).toBeCloseTo(283562.5, 1); // avg 654.375 × 52 ÷ 12
+    expect(sh[0].income.monthlyCents).toBe(283562.5); // avg 654.375 × 52 ÷ 12
     const [week] = leftover([], [], sh, '2026-10-18', '2026-10-24', 'week');
-    expect(Math.abs(week.incomeCents - 65437.5)).toBeLessThanOrEqual(0.5); // the average check
+    expect(week.incomeCents).toBe(65438); // the average check, 654.375, rounded
   });
 
   it('leftover: a paid bill counts at the amount actually paid', () => {
