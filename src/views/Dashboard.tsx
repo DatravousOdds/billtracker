@@ -41,16 +41,8 @@ export function DashboardView() {
   const weekLeft = leftover(s.bills, s.payments, sh, plan.weekStart, plan.weekEnd, 'week');
   const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month');
   const monthName = toDate(monthStart).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
-  const leftRow = (label: string, l: Leftover) => (
-    <>
-      <div className="muted small">{label}</div>
-      <div className={`person-amt${l.leftCents < 0 ? ' danger-text' : ''}`}>{formatCents(l.leftCents)}</div>
-      <div className="muted small">
-        {formatCents(l.incomeCents)} income − {formatCents(l.sharedCents)} shared
-        {l.personalCents ? ` − ${formatCents(l.personalCents)} personal` : ''}
-      </div>
-    </>
-  );
+  const math = (l: Leftover) =>
+    `${formatCents(l.incomeCents)} income − ${formatCents(l.sharedCents)} shared${l.personalCents ? ` − ${formatCents(l.personalCents)} personal` : ''}`;
 
   // ----- Balance -----
   const ahead = led.balances.find((b) => b.balanceCents > 0);
@@ -87,16 +79,14 @@ export function DashboardView() {
 
       <div className="card hero">
         <div className="hero-head">
-          <div>
-            <div className="eyebrow">This week · {formatShort(plan.weekStart)} – {formatShort(plan.weekEnd)}</div>
-            <div className="hero-total">{formatCents(plan.sharedTotalCents)}</div>
-            <div className="muted small">
-              {smoothed
-                ? `${formatCents(plan.regularCents)} weekly average of shared bills${plan.oneTimeCents ? ` + ${formatCents(plan.oneTimeCents)} one-time bills due this week` : ''}`
-                : 'Shared bills due this week'}
-            </div>
-          </div>
+          <div className="eyebrow">This week · {formatShort(plan.weekStart)} – {formatShort(plan.weekEnd)}</div>
           <span className="mode-tag">{smoothed ? 'Smoothed' : 'Pay as due'}</span>
+        </div>
+        <div className="hero-total">{formatCents(plan.sharedTotalCents)}</div>
+        <div className="muted small">
+          {smoothed
+            ? `${formatCents(plan.regularCents)} weekly average${plan.oneTimeCents ? ` + ${formatCents(plan.oneTimeCents)} one-time bills` : ''}`
+            : 'Shared bills due this week'}
         </div>
         <div className="people">
           {plan.perMember.map((p) => {
@@ -107,11 +97,9 @@ export function DashboardView() {
             const last = !isMe && smoothed ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
             return (
               <div className="person" key={p.member.user_id}>
-                <div className="person-top">
-                  <span className="person-name">{p.member.display_name}<You show={isMe} /></span>
-                  <span className="person-pct">{pct(p.ratio)}</span>
-                </div>
+                <span className="person-name">{p.member.display_name}<You show={isMe} /></span>
                 <div className="person-amt">{formatCents(p.sharedCents)}</div>
+                <div className="muted small">{pct(p.ratio)} share</div>
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
                 {smoothed && due.weeks > 1 && <div className="muted small">{formatCents(due.cents)} to deposit · covers {due.weeks} weeks</div>}
                 {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
@@ -130,17 +118,29 @@ export function DashboardView() {
 
       {!noIncome && (
         <div className="card">
-          <div className="eyebrow">Left after bills</div>
-          <div className="muted small">Income minus the bills due in each period, paid or not.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</div>
+          <div className="eyebrow">Left after bills · this week</div>
           <div className="people">
             {weekLeft.map((w, i) => (
               <div className="person" key={w.member.user_id}>
                 <span className="person-name">{w.member.display_name}<You show={w.member.user_id === s.userId} /></span>
-                {leftRow('This week', w)}
-                {leftRow(`This month · ${monthName}`, monthLeft[i])}
+                <div className={`person-amt${w.leftCents < 0 ? ' danger-text' : ''}`}>{formatCents(w.leftCents)}</div>
+                <div className="muted small">
+                  {monthName}: <span className={monthLeft[i].leftCents < 0 ? 'danger-text' : ''}>{formatCents(monthLeft[i].leftCents)}</span>
+                </div>
               </div>
             ))}
           </div>
+          <details className="how">
+            <summary>How it's worked out</summary>
+            <p className="muted small">Income minus the bills due in each period, paid or not.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</p>
+            {weekLeft.map((w, i) => (
+              <p className="muted small" key={w.member.user_id}>
+                <strong>{w.member.display_name}</strong><br />
+                This week: {math(w)}<br />
+                {monthName}: {math(monthLeft[i])}
+              </p>
+            ))}
+          </details>
         </div>
       )}
 
