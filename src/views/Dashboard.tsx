@@ -31,6 +31,7 @@ export function DashboardView() {
     .reduce((sum, c) => sum + c.amount_cents, 0);
 
   const noIncome = sh.every((x) => x.income.monthlyCents === 0);
+  const splitBy = s.household.split_proposed_by;
   const onlyOne = s.members.length < 2;
 
   // ----- Left after bills -----
@@ -55,7 +56,19 @@ export function DashboardView() {
 
   return (
     <section className="view">
-      {pending.length > 0 && <div className="stack">{pending.map((r) => <RequestCard key={r.id} r={r} />)}</div>}
+      {(pending.length > 0 || splitBy) && (
+        <div className="stack">
+          {/* A split change is approved on the Income tab, where the slider shows the amounts. */}
+          {splitBy && (
+            <a className="card request" href="#/income">
+              {splitBy === s.userId
+                ? 'You asked to change how you split bills. Waiting for your partner.'
+                : <><strong>{memberName(splitBy)}</strong> wants to change how you split bills. Review it on the Income tab ›</>}
+            </a>
+          )}
+          {pending.map((r) => <RequestCard key={r.id} r={r} />)}
+        </div>
+      )}
       {toConfirm.length > 0 && (
         <div className="card remind">
           <div className="remind-head">
@@ -69,7 +82,7 @@ export function DashboardView() {
         </div>
       )}
       {onlyOne && <div className="card note">Your partner hasn't joined yet. Share invite code <strong>{s.household.invite_code}</strong> (also in Settings).</div>}
-      {noIncome && <div className="card note">Add income on the <a href="#/income">Income</a> tab so the split reflects what each of you earns. Until then it's 50/50.</div>}
+      {noIncome && s.household.split_percent === null && <div className="card note">Add income on the <a href="#/income">Income</a> tab so the split reflects what each of you earns. Until then it's 50/50.</div>}
 
       <div className="card hero">
         <div className="hero-head">

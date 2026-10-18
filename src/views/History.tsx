@@ -79,7 +79,7 @@ export function HistoryView() {
             </tr>
           ))}</tbody>
         </table>
-        <p className="muted small">"Put in" = bill-account deposits + shared bills paid directly. Fair share uses today's income split. Bill account holds {formatCents(led.accountCents)}.</p>
+        <p className="muted small">"Put in" = bill-account deposits + shared bills paid directly. Fair share uses today's split. Bill account holds {formatCents(led.accountCents)}.</p>
       </div>
 
       <div className="seg full" role="tablist">

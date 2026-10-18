@@ -236,6 +236,9 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1
 input[inputmode='decimal'] { font-family: var(--num); }
 label.check, label.radio { display: flex; align-items: flex-start; gap: 10px; color: var(--ink); font-weight: 500; font-size: 0.95rem; }
 label.check input, label.radio input { width: auto; margin-top: 3px; accent-color: var(--accent); }
+input[type='range'] { padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
+.card.split { display: grid; gap: 10px; }
+.card.split h2, .card.split p { margin: 0; }
 fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin: 0; display: grid; gap: 10px; }
 legend { font-size: 0.8rem; font-weight: 700; color: var(--muted); padding: 0 4px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

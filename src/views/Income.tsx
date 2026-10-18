@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { formatShort, todayISO } from '../logic/dates';
 import { FREQUENCY_LABEL, PER_YEAR, paychecksNeeded } from '../logic/income';
-import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import type { Share } from '../logic/split';
+import { formatCents, parseDollars, centsToInput, splitByRatio } from '../logic/money';
+import { monthlySharedTotal, type Share } from '../logic/split';
 import type { PayFrequency } from '../types';
-import { addPaycheck, deletePaycheck, shares, updateMember } from '../store';
+import { addPaycheck, decideSplit, deletePaycheck, proposeSplit, shares, updateMember } from '../store';
 import { useAppState, useBusy } from '../ui/hooks';
 import { AsyncButton, You, pct } from '../ui/parts';
 import { toast } from '../ui/toast';
@@ -60,7 +60,9 @@ export function IncomeView() {
       <div className="view-head">
         <div>
           <h1>Income</h1>
-          <p className="muted small">Each of you pays the same percentage of shared bills as your share of combined income.</p>
+          <p className="muted small">{s.household.split_percent !== null
+            ? 'You both agreed on a custom split, so the percentages below come from that, not from income.'
+            : 'Each of you pays the same percentage of shared bills as your share of combined income.'}</p>
         </div>
       </div>
 
@@ -85,6 +87,9 @@ export function IncomeView() {
           <button type="button" className="btn ghost sm" data-guide-show onClick={() => goTo(0, false)}>Show me how</button>
         </div>
       ) : null}
+
+      {/* Keyed on the saved split so the slider resets when either phone changes it. */}
+      <SplitCard key={[s.household.split_member, s.household.split_percent, s.household.split_proposed_by, s.household.split_proposed_percent].join('|')} />
 
       <div className="stack">
         {sh.map((share) => <MemberCard key={share.member.user_id} share={share} highlight={share.member.user_id === s.userId ? highlight : null} />)}
@@ -229,6 +234,85 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Agreed split: one partner proposes a percentage with the slider, the other approves. */
+function SplitCard() {
+  const s = useAppState();
+  const h = s.household;
+  const partner = s.members.find((m) => m.user_id !== s.userId);
+  const myRatio = shares().find((x) => x.member.user_id === s.userId)?.ratio ?? 0.5;
+  const askedByMe = h.split_proposed_by === s.userId;
+  const [pct, setPct] = useState(askedByMe && h.split_proposed_percent !== null
+    ? h.split_proposed_percent
+    : Math.min(99, Math.max(1, Math.round(myRatio * 100))));
+  if (!partner) return null;
+
+  const agreed = h.split_percent !== null && h.split_member !== null;
+  const sharedMonthly = monthlySharedTotal(s.bills);
+  const preview = (myPct: number) => {
+    const [mine, theirs] = splitByRatio(sharedMonthly, [myPct, 100 - myPct]);
+    return (
+      <p>
+        You pay <strong>{myPct}%</strong> · {formatCents(mine)}/mo<br />
+        {partner.display_name} pays <strong>{100 - myPct}%</strong> · {formatCents(theirs)}/mo
+      </p>
+    );
+  };
+  const decide = (decision: 'approved' | 'declined' | 'cancelled') => async () => {
+    await decideSplit(decision);
+    toast(decision === 'approved' ? 'New split approved' : decision === 'declined' ? 'Declined' : 'Request cancelled');
+  };
+  const propose = (percent: number | null) => async () => {
+    await proposeSplit(percent);
+    toast(`Sent to ${partner.display_name} to approve`);
+  };
+
+  // The partner asked: approve or decline. A null percent means "back to splitting by income".
+  if (h.split_proposed_by && !askedByMe) {
+    const theirPct = h.split_proposed_percent;
+    return (
+      <div className="card request split">
+        <p>
+          <strong>{partner.display_name}</strong> wants to {theirPct === null
+            ? 'go back to splitting shared bills by income'
+            : `split shared bills ${theirPct}% ${partner.display_name} / ${100 - theirPct}% you`}.
+        </p>
+        {theirPct !== null && preview(100 - theirPct)}
+        <div className="row-actions">
+          <AsyncButton className="btn ghost sm" onClick={decide('declined')}>Decline</AsyncButton>
+          <AsyncButton className="btn primary sm" onClick={decide('approved')}>Approve</AsyncButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card split">
+      <h2>Choose your own split</h2>
+      <p className="muted small">{agreed
+        ? 'You both agreed to this split instead of splitting by income.'
+        : `Want a different split than by income? Slide to pick your share. Nothing changes until ${partner.display_name} approves.`}</p>
+      <label>Your share of shared bills
+        <input type="range" min={1} max={99} step={1} value={pct} onChange={(e) => setPct(Number(e.target.value))}
+          aria-valuetext={`You ${pct}%, ${partner.display_name} ${100 - pct}%`} />
+      </label>
+      {preview(pct)}
+      {askedByMe && (
+        <p className="muted small">
+          You asked to {h.split_proposed_percent === null
+            ? 'go back to splitting shared bills by income'
+            : `split shared bills ${h.split_proposed_percent}% you / ${100 - h.split_proposed_percent}% ${partner.display_name}`}.
+          {' '}Waiting for {partner.display_name}.
+        </p>
+      )}
+      <div className="row-actions">
+        {askedByMe && <AsyncButton className="btn ghost sm" onClick={decide('cancelled')}>Cancel request</AsyncButton>}
+        {agreed && !askedByMe && <AsyncButton className="btn ghost sm" onClick={propose(null)}>Go back to income split</AsyncButton>}
+        <AsyncButton className="btn primary sm" onClick={propose(pct)}>{askedByMe ? 'Update request' : `Ask ${partner.display_name} to approve`}</AsyncButton>
+      </div>
     </div>
   );
 }

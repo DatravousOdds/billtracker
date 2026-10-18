@@ -113,6 +113,15 @@ describe('split', () => {
     expect(shares[0].ratio).toBeCloseTo(0.6154, 3);
   });
 
+  it('an agreed split overrides income, but only with both partners still there', () => {
+    const agreed = incomeShares([a, b], [], '2026-10-11', { split_member: 'b', split_percent: 70 });
+    expect(agreed.map((x) => x.ratio)).toEqual([expect.closeTo(0.3), 0.7]);
+    expect(agreed[0].income.monthlyCents).toBe(400000); // income itself is unchanged
+    expect(incomeShares([a], [], '2026-10-11', { split_member: 'b', split_percent: 70 })[0].ratio).toBe(1);
+    expect(incomeShares([a, b], [], '2026-10-11', { split_member: 'gone', split_percent: 70 })[0].ratio).toBeCloseTo(0.6154, 3);
+    expect(incomeShares([a, b], [], '2026-10-11', { split_member: null, split_percent: null })[0].ratio).toBeCloseTo(0.6154, 3);
+  });
+
   it('smoothed week: monthly total × 12 ÷ 52, personal bills separate', () => {
     const bills = [
       bill('rent', 130000, 'monthly', '2026-01-01'),

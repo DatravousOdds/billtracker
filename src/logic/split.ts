@@ -1,4 +1,4 @@
-import type { Bill, Contribution, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
+import type { Bill, Contribution, Household, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
 import { addDays, weekStart } from './dates';
 import { PER_YEAR, monthlyIncome, type IncomeResult } from './income';
 import { splitByRatio } from './money';
@@ -11,14 +11,26 @@ export interface Share {
   ratio: number;
 }
 
-/** Each partner's share of the combined income. Falls back to an even split if nobody has income entered. */
-export function incomeShares(members: Member[], paychecks: Paycheck[], today: ISODate): Share[] {
+/**
+ * Each partner's share of the combined income, or the split both partners agreed on.
+ * Falls back to an even split if nobody has income entered.
+ */
+export function incomeShares(
+  members: Member[],
+  paychecks: Paycheck[],
+  today: ISODate,
+  split?: Pick<Household, 'split_member' | 'split_percent'>,
+): Share[] {
   const incomes = members.map((m) => monthlyIncome(m, paychecks, today));
   const total = incomes.reduce((s, i) => s + i.monthlyCents, 0);
+  // Only while both partners (including the one it names) are still in the household.
+  const agreed = members.length === 2 && split?.split_percent != null
+    && members.some((m) => m.user_id === split.split_member) ? split.split_percent / 100 : null;
   return members.map((member, i) => ({
     member,
     income: incomes[i],
-    ratio: total > 0 ? incomes[i].monthlyCents / total : 1 / members.length,
+    ratio: agreed !== null ? (member.user_id === split!.split_member ? agreed : 1 - agreed)
+      : total > 0 ? incomes[i].monthlyCents / total : 1 / members.length,
   }));
 }
 
