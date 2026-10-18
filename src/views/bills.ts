@@ -136,13 +136,16 @@ function openBillSheet(bill: Bill | null) {
     </form>`) as HTMLFormElement;
 
   const sh = sheet(bill ? 'Edit bill' : 'Add bill', body);
-  // Autopay bills never show as overdue, so the hint only applies without it.
+  // Matches needsConfirming: only a missed due date in the last 60 days, and never on autopay, shows as overdue.
   const pastHint = body.querySelector<HTMLElement>('[data-past-hint]');
   body.addEventListener('input', () => {
     if (!pastHint) return;
     const f = new FormData(body);
-    const date = String(f.get('start_date'));
-    pastHint.hidden = !date || date >= todayISO() || f.get('autopay') === 'on';
+    const today = todayISO();
+    const start_date = String(f.get('start_date'));
+    const missed = !!start_date
+      && dueDates({ recurrence: f.get('recurrence') as Recurrence, start_date }, addDays(today, -60), addDays(today, -1)).length > 0;
+    pastHint.hidden = !missed || f.get('autopay') === 'on';
   });
 
   body.addEventListener('submit', (e) => {
