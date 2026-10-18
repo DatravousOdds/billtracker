@@ -116,6 +116,7 @@ function Shell() {
   const hash = useRoute();
   const waiting = s
     ? s.requests.filter((r) => r.status === 'pending' && r.requested_by !== s.userId).length
+      + (s.household.split_proposed_by && s.household.split_proposed_by !== s.userId ? 1 : 0)
       + needsConfirming(s.bills, s.payments, todayISO()).length
     : 0;
   useEffect(() => {

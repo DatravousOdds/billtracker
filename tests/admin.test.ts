@@ -7,6 +7,7 @@ import leaveSql from '../supabase/leave.sql?raw';
 import adminSql from '../supabase/admin.sql?raw';
 import paycheckAverageSql from '../supabase/paycheck-average.sql?raw';
 import ownIncomeSql from '../supabase/own-income.sql?raw';
+import customSplitSql from '../supabase/custom-split.sql?raw';
 
 // The bits of Supabase the schema relies on: API roles, auth.users, auth.uid(), default grants.
 const SUPABASE_STUB = `
@@ -83,7 +84,7 @@ async function count(sql: string, params: unknown[] = []) {
 beforeAll(async () => {
   db = await PGlite.create({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
-  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql]) await db.exec(sql);
+  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql]) await db.exec(sql);
 }, 60_000);
 
 describe('normal users', () => {
@@ -259,5 +260,53 @@ describe('own-income.sql', () => {
     expect(await rows('select member_id from paychecks where household_id = $1', [h.hid])).toHaveLength(2);
     expect(await count('members where user_id = $1 and pay_amount_cents = 200000', [alex])).toBe(1);
     expect(await count('members where user_id = $1 and pay_amount_cents = 0', [sam])).toBe(1);
+  });
+});
+
+describe('custom-split.sql', () => {
+  const split = async (hid: string) => (await rows(
+    'select split_member, split_percent, split_proposed_by, split_proposed_percent from households where id = $1', [hid]))[0];
+
+  it('only changes the split once the other partner approves', async () => {
+    const h = await household('Alex', 'Sam');
+    const [alex, sam] = h.ids;
+    await as(alex);
+    await expect(db.query('update households set split_percent = 60 where id = $1', [h.hid])).rejects.toThrow(/permission denied/);
+    await expect(db.query('select public.propose_split(100)')).rejects.toThrow('between 1 and 99');
+    await db.query('select public.propose_split(60)');
+    await expect(db.query(`select public.decide_split('approved')`)).rejects.toThrow('Your partner has to approve');
+    await as(null);
+    expect(await split(h.hid)).toEqual({ split_member: null, split_percent: null, split_proposed_by: alex, split_proposed_percent: 60 });
+
+    await as(sam);
+    await expect(db.query('select public.propose_split(50)')).rejects.toThrow('already asked');
+    await expect(db.query(`select public.decide_split('cancelled')`)).rejects.toThrow('Only the requester');
+    await db.query(`select public.decide_split('approved')`);
+    await as(null);
+    expect(await split(h.hid)).toEqual({ split_member: alex, split_percent: 60, split_proposed_by: null, split_proposed_percent: null });
+
+    // Back to income also needs approval; declining keeps the agreed split.
+    await as(sam);
+    await db.query('select public.propose_split(null)');
+    await as(alex);
+    await db.query(`select public.decide_split('declined')`);
+    await as(null);
+    expect(await split(h.hid)).toMatchObject({ split_member: alex, split_percent: 60, split_proposed_by: null });
+    expect(await count(`activity_log where household_id = $1 and message like '%split%'`, [h.hid])).toBe(4);
+  });
+
+  it('needs a partner, and a partner leaving resets the split', async () => {
+    const solo = await household('Kim');
+    await as(solo.ids[0]);
+    await expect(db.query('select public.propose_split(60)')).rejects.toThrow('partner needs to join');
+
+    const h = await household('Alex', 'Sam');
+    await as(h.ids[0]);
+    await db.query('select public.propose_split(70)');
+    await as(h.ids[1]);
+    await db.query(`select public.decide_split('approved')`);
+    await db.query('select public.leave_household()');
+    await as(null);
+    expect(await split(h.hid)).toEqual({ split_member: null, split_percent: null, split_proposed_by: null, split_proposed_percent: null });
   });
 });
