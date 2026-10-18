@@ -2,7 +2,7 @@
 
 A bill tracker for two partners. It splits shared bills by each partner's share of combined income and syncs live between both phones through Supabase.
 
-**Stack:** Vite + TypeScript (no framework) · plain CSS · Supabase (Postgres, Auth, Realtime)
+**Stack:** Vite + React + TypeScript · plain CSS · Supabase (Postgres, Auth, Realtime)
 
 ## What it does
 
@@ -92,8 +92,9 @@ supabase/paycheck-average.sql  members.paycheck_average: Automatic vs By paychec
 supabase/own-income.sql        each partner edits only their own income and paychecks (both can view)
 src/logic/               pure functions (unit-tested): money, dates, recurrence, income, split, ledger
 src/store.ts             loads household data, realtime sync, all reads/writes (+ demo-mode versions)
-src/views/               one file per screen
-src/ui/                  small DOM helpers and shared list rows
+src/App.tsx              sign-in routing, app shell and tab navigation
+src/views/               one React component file per screen
+src/ui/                  shared components (Sheet, AsyncButton, bill rows), hooks and toast
 src/demo.ts              sample data for the demo build
 tests/logic.test.ts      npm test
 tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) and checks who can read/change what

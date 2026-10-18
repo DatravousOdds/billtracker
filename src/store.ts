@@ -23,6 +23,12 @@ export interface State {
 let state: State | null = null;
 let channel: RealtimeChannel | null = null;
 const listeners = new Set<() => void>();
+// Bumped on every change: state is mutated in place, so React watches this number instead.
+let version = 0;
+export const getVersion = () => version;
+
+/** State, or null while signed out or loading. */
+export const peekState = () => state;
 
 export function getState(): State {
   if (!state) throw new Error('Not loaded');
@@ -35,6 +41,7 @@ export function subscribe(fn: () => void): () => void {
 }
 
 function emit() {
+  version++;
   listeners.forEach((fn) => fn());
 }
 
