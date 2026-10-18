@@ -23,6 +23,12 @@ export interface State {
 let state: State | null = null;
 let channel: RealtimeChannel | null = null;
 const listeners = new Set<() => void>();
+// Bumped on every change: state is mutated in place, so React watches this number instead.
+let version = 0;
+export const getVersion = () => version;
+
+/** State, or null while signed out or loading. */
+export const peekState = () => state;
 
 export function getState(): State {
   if (!state) throw new Error('Not loaded');
@@ -35,6 +41,7 @@ export function subscribe(fn: () => void): () => void {
 }
 
 function emit() {
+  version++;
   listeners.forEach((fn) => fn());
 }
 
@@ -113,7 +120,7 @@ async function reload() {
 
 export function shares(): Share[] {
   const s = getState();
-  return incomeShares(s.members, s.paychecks, todayISO());
+  return incomeShares(s.members, s.paychecks, todayISO(), s.household);
 }
 
 export function memberName(id: string | null): string {
@@ -303,5 +310,33 @@ export async function decideRequest(id: string, decision: 'approved' | 'declined
     }, (s) => `${me(s)} ${decision} the request to make ${bill.name} ${r.kind === 'make_personal' ? 'personal' : 'shared'}`);
   }
   check(await supabase.rpc('decide_request', { p_request_id: id, p_decision: decision }));
+  await reload();
+}
+
+/** Ask your partner to approve a split where you pay `percent`% (null = back to income). */
+export async function proposeSplit(percent: number | null) {
+  if (isDemo) {
+    const s = getState();
+    if (s.household.split_proposed_by && s.household.split_proposed_by !== s.userId) {
+      throw new Error('Your partner already asked for a split change. Approve or decline it first.');
+    }
+    return local((s) => Object.assign(s.household, { split_proposed_by: s.userId, split_proposed_percent: percent }),
+      (s) => `${me(s)} asked to ${percent === null ? 'go back to splitting bills by income' : `split shared bills ${percent}/${100 - percent}`}`);
+  }
+  check(await supabase.rpc('propose_split', { p_percent: percent }));
+  await reload();
+}
+
+export async function decideSplit(decision: 'approved' | 'declined' | 'cancelled') {
+  if (isDemo) {
+    const h = getState().household;
+    if (decision !== 'cancelled' && h.split_proposed_by === getState().userId) throw new Error('Your partner has to approve this, not you');
+    const p = h.split_proposed_percent;
+    return local(() => {
+      if (decision === 'approved') Object.assign(h, { split_member: p === null ? null : h.split_proposed_by, split_percent: p });
+      Object.assign(h, { split_proposed_by: null, split_proposed_percent: null });
+    }, (s) => `${me(s)} ${decision} the ${p === null ? 'request to split bills by income' : `${p}/${100 - p} bill split`}`);
+  }
+  check(await supabase.rpc('decide_split', { p_decision: decision }));
   await reload();
 }

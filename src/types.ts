@@ -12,6 +12,12 @@ export interface Household {
   name: string;
   invite_code: string;
   weekly_mode: WeeklyMode;
+  /** Agreed split: split_member pays split_percent%. null = split by income. */
+  split_member: string | null;
+  split_percent: number | null;
+  /** Waiting for the partner. A null percent with a proposer = back to income. */
+  split_proposed_by: string | null;
+  split_proposed_percent: number | null;
 }
 
 export interface Member {
