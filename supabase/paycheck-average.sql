@@ -1,8 +1,8 @@
 -- =====================================================================
 -- Bill Tracker — how a "log each paycheck" partner's average is worked out
 -- Run once after schema.sql (safe to re-run).
---   auto         = latest month's worth of paychecks added up
---   per_paycheck = average of those paychecks × paychecks per year ÷ 12
+--   auto / per_paycheck = average of the latest month's worth of paychecks × paychecks per year ÷ 12
+--   (both currently calculate the same way; the app does the math, not the database)
 -- =====================================================================
 
 alter table public.members add column if not exists paycheck_average text not null default 'auto'

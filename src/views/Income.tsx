@@ -110,13 +110,11 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
   const mine = m.user_id === s.userId;
   const n = paychecksNeeded(m.pay_frequency);
   const latest = `latest ${n === 1 ? 'paycheck' : `${n} paychecks`}`;
-  const sourceNote = income.source === 'auto'
-    ? `${n === 1 ? 'Latest paycheck' : `Latest ${n} paychecks added up`} (one month's worth when paid ${FREQUENCY_LABEL[m.pay_frequency].toLowerCase()})`
-    : income.source === 'per_paycheck'
-      ? `Average of the ${latest} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`
-      : income.source === 'fallback'
-        ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use the average (${income.paychecksUsed} so far) — using usual pay below`
-        : `${formatCents(m.pay_amount_cents)} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
+  const sourceNote = income.source === 'auto' || income.source === 'per_paycheck'
+    ? `Average of the ${latest} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`
+    : income.source === 'fallback'
+      ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use the average (${income.paychecksUsed} so far) — using usual pay below`
+      : `${formatCents(m.pay_amount_cents)} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
   const hl = (target: GuideTarget) => (highlight === target ? ' guide-on' : '');
 
   const checkList = checks.length > 0 && (

@@ -77,7 +77,7 @@ describe('income', () => {
     expect(['weekly', 'biweekly', 'semimonthly', 'monthly'].map((f) => paychecksNeeded(f as Member['pay_frequency'])))
       .toEqual([4, 2, 2, 1]);
   });
-  it('per-paycheck uses the latest month of checks, automatic or by paycheck', () => {
+  it('per-paycheck averages the latest month of checks, automatic or by paycheck', () => {
     const m = member('a', 200000, 'biweekly', 'per_paycheck');
     const checks: Paycheck[] = [
       { id: '1', household_id: 'h', member_id: 'a', amount_cents: 100000, paid_on: '2026-10-01' },
@@ -89,7 +89,7 @@ describe('income', () => {
     const auto = monthlyIncome(m, checks, '2026-10-17');
     expect(auto.source).toBe('auto');
     expect(auto.paychecksUsed).toBe(2);
-    expect(auto.monthlyCents).toBe(210000); // 1100 + 1000
+    expect(auto.monthlyCents).toBe(227500); // avg 1050 × 26 ÷ 12
     const per = monthlyIncome({ ...m, paycheck_average: 'per_paycheck' }, checks, '2026-10-17');
     expect(per.source).toBe('per_paycheck');
     expect(per.monthlyCents).toBe(227500); // avg 1050 × 26 ÷ 12
@@ -170,9 +170,9 @@ describe('split', () => {
       id: `p${i}`, household_id: 'h', member_id: 's', amount_cents, paid_on: `2026-10-0${i + 1}`,
     }));
     const sh = incomeShares([sam], checks, '2026-10-18');
-    expect(sh[0].income.monthlyCents).toBe(261750); // 4 checks added up
+    expect(sh[0].income.monthlyCents).toBe(283562.5); // avg 654.375 × 52 ÷ 12
     const [week] = leftover([], [], sh, '2026-10-18', '2026-10-24', 'week');
-    expect(week.incomeCents).toBe(65438); // 2,617.50 ÷ 4, not 2,617.50 × 12 ÷ 52 = 604.04
+    expect(week.incomeCents).toBe(65438); // the average check, 654.375, rounded
   });
 
   it('leftover: a paid bill counts at the amount actually paid', () => {
