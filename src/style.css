@@ -138,7 +138,7 @@ main { max-width: 640px; margin: 0 auto; }
 .stack { display: grid; gap: 10px; }
 .eyebrow { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
 
-.hero-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.hero-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .hero-total { font: 700 2.4rem/1.1 var(--num); letter-spacing: -0.03em; margin: 4px 0; }
 .mode-tag { font-size: 0.75rem; padding: 4px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 600; white-space: nowrap; }
 
@@ -148,7 +148,10 @@ main { max-width: 640px; margin: 0 auto; }
 .person-name { font-weight: 600; }
 .person-pct { font: 600 0.8rem var(--num); color: var(--muted); }
 .person-amt { font: 700 1.5rem/1.2 var(--num); letter-spacing: -0.02em; }
-.person .pill { justify-self: start; margin-top: 6px; }
+.person .pill { justify-self: start; margin-top: 6px; padding: 9px 14px; } /* main action on the card: thumb-sized */
+.how { margin-top: 4px; }
+.how summary { cursor: pointer; padding: 10px 0; font-size: 0.85rem; font-weight: 600; color: var(--accent); }
+.how p { margin: 8px 0 0; }
 
 .card.balance { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-decoration: none; color: inherit; }
 .card.balance > span { font-size: 1.4rem; color: var(--muted); }
