@@ -176,6 +176,10 @@ describe('split', () => {
     expect(due(biweekly, '2026-10-27')).toEqual({ cents: 0, weeks: 0, nextPayday: '2026-11-06' });
     // Paid Oct 1 (week of Sep 27); next payday Nov 1 starts its own week, so 5 weeks are covered.
     expect(due({ ...b, payday: '2026-10-01' }, '2026-10-01')).toEqual({ cents: weekly * 5, weeks: 5, nextPayday: null });
+    // Twice a month on the 1st and 16th: the Oct 1 week covers 2 weeks, the Oct 16 week covers 3 (until the Nov 1 week).
+    const semi = { ...b, pay_frequency: 'semimonthly' as const, payday: '2026-10-01' };
+    expect(due(semi, '2026-10-01')).toEqual({ cents: weekly * 2, weeks: 2, nextPayday: null });
+    expect(due(semi, '2026-10-16')).toEqual({ cents: weekly * 3, weeks: 3, nextPayday: null });
     expect(due({ ...b, pay_frequency: 'weekly', payday: '2026-10-23' }, '2026-10-20')).toEqual({ cents: weekly, weeks: 1, nextPayday: null });
     expect(due(b, '2026-10-13')).toEqual({ cents: weekly, weeks: 1, nextPayday: null });
     // A payday saved too far ahead to project falls back to asking every week.

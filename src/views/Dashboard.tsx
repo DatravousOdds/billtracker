@@ -106,7 +106,7 @@ export function DashboardView() {
                 <div className="person-amt">{formatCents(smoothed ? due.cents : p.sharedCents)}</div>
                 {!smoothed || due.weeks === 1 ? <div className="muted small">This week</div>
                   : due.weeks > 1 ? <div className="muted small">Covers {formatShort(plan.weekStart)} – {formatShort(addDays(plan.weekStart, 7 * due.weeks - 1))}</div>
-                  : <div className="muted small">Covered by last payday{due.nextPayday && <><br />Next payday {formatShort(due.nextPayday)}</>}</div>}
+                  : <div className="muted small">Nothing due until payday{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>}
                 {smoothed && later > 0 && (
                   <div className="split-rows">
                     <div><span>This week</span><span>{formatCents(p.sharedCents)}</span></div>
