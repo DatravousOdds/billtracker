@@ -165,19 +165,21 @@ describe('split', () => {
     expect(plan.perMember[0].personalCents).toBe(0);
   });
 
-  it('deposit is asked for only in payday weeks, covering the weeks since the last one', () => {
+  it('deposit is asked for only in payday weeks, covering the weeks until the next one', () => {
     const bills = [bill('rent', 130000, 'monthly', '2026-01-01')];
     const weekly = weekPlan('2026-10-13', 'smoothed', bills, [], shares).perMember[1].sharedCents;
-    const paid = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-23' };
-    // Week of Oct 11–17 has no payday; Oct 23 is next week.
-    expect(depositDue(paid, '2026-10-13', 'smoothed', bills, [], shares)).toEqual({ cents: 0, weeks: 0, nextPayday: '2026-10-23', fromWeek: '2026-10-11' });
-    expect(depositDue(paid, '2026-10-20', 'smoothed', bills, [], shares)).toEqual({ cents: weekly * 2, weeks: 2, nextPayday: null, fromWeek: '2026-10-11' });
-    expect(depositDue(b, '2026-10-13', 'smoothed', bills, [], shares)).toEqual({ cents: weekly, weeks: 1, nextPayday: null, fromWeek: '2026-10-11' });
+    const due = (m: Member, date: string) => depositDue(m, date, 'smoothed', bills, [], shares);
+    const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-23' };
+    // Week of Oct 11–17 has no payday; Oct 23 covers Oct 18–31; Oct 25–31 is already covered.
+    expect(due(biweekly, '2026-10-13')).toEqual({ cents: 0, weeks: 0, nextPayday: '2026-10-23' });
+    expect(due(biweekly, '2026-10-20')).toEqual({ cents: weekly * 2, weeks: 2, nextPayday: null });
+    expect(due(biweekly, '2026-10-27')).toEqual({ cents: 0, weeks: 0, nextPayday: '2026-11-06' });
+    // Paid Oct 1 (week of Sep 27); next payday Nov 1 starts its own week, so 5 weeks are covered.
+    expect(due({ ...b, payday: '2026-10-01' }, '2026-10-01')).toEqual({ cents: weekly * 5, weeks: 5, nextPayday: null });
+    expect(due({ ...b, pay_frequency: 'weekly', payday: '2026-10-23' }, '2026-10-20')).toEqual({ cents: weekly, weeks: 1, nextPayday: null });
+    expect(due(b, '2026-10-13')).toEqual({ cents: weekly, weeks: 1, nextPayday: null });
     // A payday saved too far ahead to project falls back to asking every week.
-    expect(depositDue({ ...paid, payday: '2028-03-03' }, '2026-10-13', 'smoothed', bills, [], shares)).toMatchObject({ cents: weekly, weeks: 1 });
-    // Monthly pay on the 1st: Nov 1 week covers the 5 weeks since the Oct 1 week.
-    const monthly = { ...b, payday: '2026-10-01' };
-    expect(depositDue(monthly, '2026-11-02', 'smoothed', bills, [], shares)).toMatchObject({ weeks: 5, fromWeek: '2026-10-04' });
+    expect(due({ ...biweekly, payday: '2028-03-03' }, '2026-10-13')).toEqual({ cents: weekly, weeks: 1, nextPayday: null });
   });
 
   it('due week: only what is due', () => {

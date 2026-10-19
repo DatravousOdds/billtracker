@@ -26,9 +26,8 @@ export function DashboardView() {
   const pending = s.requests.filter((r) => r.status === 'pending');
 
   // ----- Who pays what -----
-  // A payday deposit can cover earlier weeks, so anything already put in for those weeks counts too.
-  const deposited = (memberId: string, fromWeek: string) => s.contributions
-    .filter((c) => c.member_id === memberId && c.week_start >= fromWeek && c.week_start <= plan.weekStart)
+  const deposited = (memberId: string) => s.contributions
+    .filter((c) => c.member_id === memberId && c.week_start === plan.weekStart)
     .reduce((sum, c) => sum + c.amount_cents, 0);
 
   const noIncome = sh.every((x) => x.income.monthlyCents === 0);
@@ -92,23 +91,35 @@ export function DashboardView() {
           {plan.perMember.map((p) => {
             const isMe = p.member.user_id === s.userId;
             const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh);
-            const done = deposited(p.member.user_id, due.fromWeek);
+            const done = deposited(p.member.user_id);
             // contributions are sorted newest first, so the first match is the partner's latest.
             const last = !isMe && smoothed ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
+            const later = due.weeks - 1;
             return (
               <div className="person" key={p.member.user_id}>
-                <span className="person-name">{p.member.display_name}<You show={isMe} /></span>
-                <div className="person-amt">{formatCents(p.sharedCents)}</div>
-                <div className="muted small">{pct(p.ratio)} share</div>
+                <div className="person-top">
+                  <span className="person-name">{p.member.display_name}<You show={isMe} /></span>
+                  <span className="person-pct" title="Share of shared bills">{pct(p.ratio)}</span>
+                </div>
+                <div className="eyebrow">{smoothed ? 'To deposit' : 'Share this week'}</div>
+                {/* Smoothed: the whole deposit, which on a payday week covers every week until the next payday. */}
+                <div className="person-amt">{formatCents(smoothed ? due.cents : p.sharedCents)}</div>
+                {!smoothed || due.weeks === 1 ? <div className="muted small">This week</div>
+                  : due.weeks > 1 ? <div className="muted small">Covers {formatShort(plan.weekStart)} – {formatShort(addDays(plan.weekStart, 7 * due.weeks - 1))}</div>
+                  : <div className="muted small">Covered by last payday<br />Next payday {formatShort(due.nextPayday!)}</div>}
+                {smoothed && later > 0 && (
+                  <div className="split-rows">
+                    <div><span>This week</span><span>{formatCents(p.sharedCents)}</span></div>
+                    <div><span>{later === 1 ? 'Next week' : `Next ${later} weeks`}</span><span>{formatCents(due.cents - p.sharedCents)}</span></div>
+                  </div>
+                )}
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
-                {smoothed && due.weeks > 1 && <div className="muted small">{formatCents(due.cents)} to deposit · covers {due.weeks} weeks</div>}
                 {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
-                {!smoothed ? null
+                {!smoothed || (due.weeks === 0 && done === 0) ? null
                   : done >= due.cents && done > 0 ? <span className="pill paid">✓ Deposited</span>
-                  : due.weeks === 0 ? <span className="muted small">{due.nextPayday ? `Payday ${formatShort(due.nextPayday)} · deposit then` : 'No payday this week · no deposit'}</span>
                   : isMe ? <button type="button" className="pill" onClick={() => setDeposit(due.cents - done)}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
-                  : <span className="muted small">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
+                  : <span className="badge person-status">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
                 {last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
               </div>
             );

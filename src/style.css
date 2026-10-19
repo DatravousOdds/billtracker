@@ -149,6 +149,10 @@ main { max-width: 640px; margin: 0 auto; }
 .person-pct { font: 600 0.8rem var(--num); color: var(--muted); }
 .person-amt { font: 700 1.5rem/1.2 var(--num); letter-spacing: -0.02em; }
 .person .pill { justify-self: start; margin-top: 6px; padding: 9px 14px; } /* main action on the card: thumb-sized */
+.person-status { justify-self: start; margin-top: 6px; }
+.split-rows { display: grid; gap: 2px; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 0.83rem; color: var(--muted); }
+.split-rows > div { display: flex; justify-content: space-between; gap: 8px; }
+.split-rows > div > span:last-child { font-family: var(--num); color: var(--ink); }
 .how { margin-top: 4px; }
 .how summary { cursor: pointer; padding: 10px 0; font-size: 0.85rem; font-weight: 600; color: var(--accent); }
 .how p { margin: 8px 0 0; }
