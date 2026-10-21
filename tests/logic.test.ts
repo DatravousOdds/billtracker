@@ -240,6 +240,25 @@ describe('split', () => {
     expect(week.incomeCents).toBe(65438); // the average check, 654.375, rounded
   });
 
+  it('leftover: month income is the logged checks dated in that month', () => {
+    const tra = member('t', 104600, 'weekly', 'per_paycheck'); // started mid-month: 3 checks
+    const les = member('l', 149800, 'biweekly', 'per_paycheck');
+    const fix = member('f', 104600, 'weekly'); // fixed pay ignores logged checks
+    const check = (member_id: string, paid_on: string, amount_cents: number) => ({ id: paid_on + member_id, household_id: 'h', member_id, amount_cents, paid_on });
+    const checks = [
+      check('t', '2026-10-16', 104600), check('t', '2026-10-23', 104600), check('t', '2026-10-30', 104600),
+      check('l', '2026-09-25', 147600), check('l', '2026-10-09', 138200), check('l', '2026-10-23', 155000),
+      check('f', '2026-10-16', 1),
+    ];
+    const sh = incomeShares([tra, les, fix], checks, '2026-10-21');
+    const [t, l, f] = leftover([], [], sh, '2026-10-01', '2026-10-31', 'month', checks);
+    expect(t.incomeCents).toBe(313800); // future-dated Oct 23 and 30 count
+    expect(l.incomeCents).toBe(293200); // September check left out
+    expect(f.incomeCents).toBe(453267); // 1046 × 52 ÷ 12
+    const [nov] = leftover([], [], sh, '2026-11-01', '2026-11-30', 'month', checks);
+    expect(nov.incomeCents).toBe(453267); // nothing logged yet: average month
+  });
+
   it('leftover: a paid bill counts at the amount actually paid', () => {
     const bills = [bill('electric', 13500, 'monthly', '2026-01-18')];
     const paid = [{ id: 'p', household_id: 'h', bill_id: 'electric', due_date: '2026-10-18', paid_on: '2026-10-18', amount_cents: 14200, paid_by: null }];

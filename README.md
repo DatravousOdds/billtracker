@@ -114,7 +114,7 @@ tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) an
 | Bill per month | weekly × 52/12 · biweekly × 26/12 · monthly × 1 · quarterly ÷ 3 · yearly ÷ 12 · one-time counts only in the week it's due |
 | Smoothed weekly | shared bills per month × 12 ÷ 52 + one-time shared bills due this week |
 | Payday deposit | your share of each week (smoothed amount, or bills due in pay as due) from your payday week up to the week before your next payday week. Nothing in the weeks between |
-| Left after bills | income − your split of shared bills due − your personal bills due, for this Sun–Sat week and this calendar month. Bills count paid or not; a paid bill counts at the amount paid. Month uses monthly income (an average month, not actual paydays); week uses monthly × 12 ÷ 52 |
+| Left after bills | income − your split of shared bills due − your personal bills due, for this Sun–Sat week and this calendar month. Bills count paid or not; a paid bill counts at the amount paid. Month uses the paychecks dated in that month for someone who logs each paycheck, otherwise monthly income (an average month); week uses monthly × 12 ÷ 52 |
 | Running balance | (deposits + shared bills you paid directly) − your income share of everything both of you put in. The two balances always add up to $0. |
 
 Money is stored as whole cents, so totals never drift. Splits are rounded so the two parts always add up exactly to the total.

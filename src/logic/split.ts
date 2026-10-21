@@ -184,6 +184,9 @@ export interface Leftover {
 /**
  * What each partner has left from a period's income after the bills actually due in it
  * (paid or not; a paid bill counts at the amount actually paid).
+ * Month income for someone who logs paychecks is the checks dated in that month (including
+ * ones logged ahead of time), so a mid-month start counts only what was actually paid.
+ * Everyone else, and a month with nothing logged yet, uses the average month.
  */
 export function leftover(
   bills: Bill[],
@@ -192,6 +195,7 @@ export function leftover(
   from: ISODate,
   to: ISODate,
   period: 'week' | 'month',
+  paychecks: Paycheck[] = [],
 ): Leftover[] {
   const due = occurrences(bills, payments, from, to);
   const cost = (o: Occurrence) => o.payment?.amount_cents ?? o.bill.amount_cents;
@@ -199,7 +203,10 @@ export function leftover(
   const parts = splitByRatio(sharedTotal, shares.map((s) => s.ratio));
   return shares.map((s, i) => {
     const { monthlyCents } = s.income;
-    const incomeCents = Math.round(period === 'month' ? monthlyCents : (monthlyCents * 12) / 52);
+    const logged = paychecks.filter((p) => p.member_id === s.member.user_id && p.paid_on >= from && p.paid_on <= to);
+    const incomeCents = period === 'week' ? Math.round((monthlyCents * 12) / 52)
+      : s.member.income_mode !== 'fixed' && logged.length ? logged.reduce((sum, p) => sum + p.amount_cents, 0)
+      : Math.round(monthlyCents);
     const personalCents = due
       .filter((o) => o.bill.owner_id === s.member.user_id)
       .reduce((sum, o) => sum + cost(o), 0);

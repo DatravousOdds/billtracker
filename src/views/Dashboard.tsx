@@ -38,7 +38,7 @@ export function DashboardView() {
   // Hidden until someone has income: the 50/50 fallback would show made-up negatives.
   const monthStart = today.slice(0, 8) + '01';
   const weekLeft = leftover(s.bills, s.payments, sh, plan.weekStart, plan.weekEnd, 'week');
-  const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month');
+  const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month', s.paychecks);
   const monthName = toDate(monthStart).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
   const math = (l: Leftover) =>
     `${formatCents(l.incomeCents)} income − ${formatCents(l.sharedCents)} shared${l.personalCents ? ` − ${formatCents(l.personalCents)} personal` : ''}`;
@@ -143,7 +143,7 @@ export function DashboardView() {
           </div>
           <details className="how">
             <summary>How it's worked out</summary>
-            <p className="muted small">Income minus the bills due in each period, paid or not.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</p>
+            <p className="muted small">Income minus the bills due in each period, paid or not. If you log each paycheck, {monthName} income is the checks dated in {monthName}.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</p>
             {weekLeft.map((w, i) => (
               <p className="muted small" key={w.member.user_id}>
                 <strong>{w.member.display_name}</strong><br />
