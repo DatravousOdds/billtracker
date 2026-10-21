@@ -186,6 +186,21 @@ describe('split', () => {
     expect(due({ ...biweekly, payday: '2028-03-03' }, '2026-10-13')).toEqual({ cents: weekly, weeks: 1, nextPayday: null });
   });
 
+  it('pay as due: a payday deposit covers the bills actually due until the next payday', () => {
+    // Phone due Oct 22, internet Oct 28, rent Nov 1.
+    const bills = [bill('phone', 8000, 'monthly', '2026-01-22'), bill('internet', 6000, 'monthly', '2026-01-28'), bill('rent', 130000, 'monthly', '2026-01-01')];
+    const week = (d: string) => weekPlan(d, 'due', bills, [], shares).perMember[1].sharedCents;
+    const due = (m: Member, date: string) => depositDue(m, date, 'due', bills, [], shares);
+    // Every 2 weeks, paid Oct 23: covers Oct 18–31 (phone + internet); rent falls in the Nov 6 payday's weeks.
+    const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-23' };
+    expect(due(biweekly, '2026-10-20')).toEqual({ cents: week('2026-10-20') + week('2026-10-27'), weeks: 2, nextPayday: null });
+    expect(due(biweekly, '2026-10-27')).toEqual({ cents: 0, weeks: 0, nextPayday: '2026-11-06' });
+    // Twice a month, paid Oct 1 and 16: the Oct 16 week covers Oct 11–31.
+    const semi = { ...b, pay_frequency: 'semimonthly' as const, payday: '2026-10-01' };
+    expect(due(semi, '2026-10-16')).toEqual({ cents: week('2026-10-20') + week('2026-10-27'), weeks: 3, nextPayday: null });
+    expect(week('2026-10-20') + week('2026-10-27')).toBeGreaterThan(0);
+  });
+
   it('due week: only what is due', () => {
     const bills = [bill('rent', 130000, 'monthly', '2026-01-01'), bill('phone', 8000, 'monthly', '2026-01-15')];
     const plan = weekPlan('2026-10-13', 'due', bills, [], shares);

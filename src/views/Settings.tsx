@@ -72,7 +72,7 @@ export function SettingsView() {
           <label className="radio"><input type="radio" name="weekly_mode" value="smoothed" defaultChecked={h.weekly_mode === 'smoothed'} />
             <span><strong>Smoothed</strong><br /><span className="muted small">Same amount every week (monthly bills × 12 ÷ 52) into a shared bill account.</span></span></label>
           <label className="radio"><input type="radio" name="weekly_mode" value="due" defaultChecked={h.weekly_mode === 'due'} />
-            <span><strong>Pay as due</strong><br /><span className="muted small">Split only the bills due that week.</span></span></label>
+            <span><strong>Pay as due</strong><br /><span className="muted small">Split only the bills actually due. With a payday saved, you deposit on payday for the bills due until your next one.</span></span></label>
         </fieldset>
 
         <button className="btn primary" type="submit" disabled={savingHousehold}>Save household</button>

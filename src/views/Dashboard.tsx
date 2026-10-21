@@ -93,7 +93,7 @@ export function DashboardView() {
             const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh);
             const done = deposited(p.member.user_id);
             // contributions are sorted newest first, so the first match is the partner's latest.
-            const last = !isMe && smoothed ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
+            const last = !isMe ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
             const later = due.weeks - 1;
             return (
               <div className="person" key={p.member.user_id}>
@@ -101,13 +101,13 @@ export function DashboardView() {
                   <span className="person-name">{p.member.display_name}<You show={isMe} /></span>
                   <span className="person-pct" title="Share of shared bills">{pct(p.ratio)}</span>
                 </div>
-                <div className="eyebrow">{smoothed ? 'To deposit' : 'Share this week'}</div>
-                {/* Smoothed: the whole deposit, which on a payday week covers every week until the next payday. */}
-                <div className="person-amt">{formatCents(smoothed ? due.cents : p.sharedCents)}</div>
-                {!smoothed || due.weeks === 1 ? <div className="muted small">This week</div>
+                <div className="eyebrow">To deposit</div>
+                {/* The whole deposit, which on a payday week covers every week until the next payday (in either mode). */}
+                <div className="person-amt">{formatCents(due.cents)}</div>
+                {due.weeks === 1 ? <div className="muted small">This week</div>
                   : due.weeks > 1 ? <div className="muted small">Covers {formatShort(plan.weekStart)} – {formatShort(addDays(plan.weekStart, 7 * due.weeks - 1))}</div>
                   : <div className="muted small">Nothing due until payday{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>}
-                {smoothed && later > 0 && (
+                {later > 0 && (
                   <div className="split-rows">
                     <div><span>This week</span><span>{formatCents(p.sharedCents)}</span></div>
                     <div><span>{later === 1 ? 'Next week' : `Next ${later} weeks`}</span><span>{formatCents(due.cents - p.sharedCents)}</span></div>
@@ -116,7 +116,7 @@ export function DashboardView() {
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
                 {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
-                {!smoothed || (due.weeks === 0 && done === 0) ? null
+                {due.weeks === 0 && done === 0 ? null
                   : done >= due.cents && done > 0 ? <span className="pill paid">✓ Deposited</span>
                   : isMe ? <button type="button" className="pill" onClick={() => setDeposit(due.cents - done)}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
                   : <span className="badge person-status">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
@@ -168,7 +168,7 @@ export function DashboardView() {
               ? <>{ahead.member.display_name} has covered <strong>{formatCents(ahead.balanceCents)}</strong> more than their share</>
               : "You're both even"}
           </div>
-          {smoothed && <div className="muted small">Bill account: {formatCents(led.accountCents)} (deposits minus bills paid from it)</div>}
+          <div className="muted small">Bill account: {formatCents(led.accountCents)} (deposits minus bills paid from it)</div>
         </div>
         <span aria-hidden="true">›</span>
       </a>
