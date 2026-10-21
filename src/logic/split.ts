@@ -86,7 +86,8 @@ export interface WeekPlan {
  *
  * smoothed: (average monthly shared bills × 12 ÷ 52) every week, plus any one-time
  *           shared bills due this week, split by income.
- * due:      the shared bills actually due this week, split by income.
+ * due:      the unpaid shared bills due this week plus, when `overdue` is on, unpaid shared
+ *           bills from before it (same rule as needsConfirming), split by income.
  *
  * Personal bills are never split; they're shown separately for their owner.
  */
@@ -96,6 +97,7 @@ export function weekPlan(
   bills: Bill[],
   payments: Payment[],
   shares: Share[],
+  overdue = true,
 ): WeekPlan {
   const start = weekStart(date);
   const end = addDays(start, 6);
@@ -108,7 +110,10 @@ export function weekPlan(
     regular = Math.round((monthlySharedTotal(bills) * 12) / 52);
     oneTime = sharedDue.filter((o) => o.bill.recurrence === 'once').reduce((s, o) => s + o.bill.amount_cents, 0);
   } else {
-    regular = sharedDue.reduce((s, o) => s + o.bill.amount_cents, 0);
+    const late = overdue ? needsConfirming(bills, payments, addDays(start, -1)) : [];
+    regular = [...sharedDue, ...late]
+      .filter((o) => o.bill.owner_id === null && !o.payment)
+      .reduce((s, o) => s + o.bill.amount_cents, 0);
   }
   const total = regular + oneTime;
   const parts = splitByRatio(total, shares.map((s) => s.ratio));
@@ -154,8 +159,9 @@ export function depositDue(
   payments: Payment[],
   shares: Share[],
 ): DepositDue {
-  const share = (d: ISODate) =>
-    weekPlan(d, mode, bills, payments, shares).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
+  // Overdue bills belong to the first week only, or a multi-week deposit would count them again.
+  const share = (d: ISODate, overdue = true) =>
+    weekPlan(d, mode, bills, payments, shares, overdue).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
   const start = weekStart(date);
   const end = addDays(start, 6);
   const weekly = { cents: share(start), weeks: 1, nextPayday: null };
@@ -169,7 +175,7 @@ export function depositDue(
   let weeks = 1;
   while (weeks < 6 && !paydays(member, addDays(start, 7 * weeks), addDays(start, 7 * weeks + 6)).length) weeks++;
   let cents = 0;
-  for (let i = 0; i < weeks; i++) cents += share(addDays(start, 7 * i));
+  for (let i = 0; i < weeks; i++) cents += share(addDays(start, 7 * i), i === 0);
   return { cents, weeks, nextPayday: null };
 }
 

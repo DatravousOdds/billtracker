@@ -85,7 +85,7 @@ export function DashboardView() {
         <div className="muted small">
           {smoothed
             ? `${formatCents(plan.regularCents)} weekly average${plan.oneTimeCents ? ` + ${formatCents(plan.oneTimeCents)} one-time bills` : ''}`
-            : 'Shared bills due this week'}
+            : 'Unpaid shared bills due this week, plus any overdue'}
         </div>
         <div className="people">
           {plan.perMember.map((p) => {

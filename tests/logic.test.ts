@@ -187,10 +187,11 @@ describe('split', () => {
   });
 
   it('pay as due: a payday deposit covers the bills actually due until the next payday', () => {
-    // Phone due Oct 22, internet Oct 28, rent Nov 1.
-    const bills = [bill('phone', 8000, 'monthly', '2026-01-22'), bill('internet', 6000, 'monthly', '2026-01-28'), bill('rent', 130000, 'monthly', '2026-01-01')];
-    const week = (d: string) => weekPlan(d, 'due', bills, [], shares).perMember[1].sharedCents;
-    const due = (m: Member, date: string) => depositDue(m, date, 'due', bills, [], shares);
+    // Phone due Oct 22, internet Oct 28, rent Nov 1 (bills start in October and Oct's rent is paid, so nothing is overdue).
+    const bills = [bill('phone', 8000, 'monthly', '2026-10-22'), bill('internet', 6000, 'monthly', '2026-10-28'), bill('rent', 130000, 'monthly', '2026-10-01')];
+    const paid = [{ id: 'p', household_id: 'h', bill_id: 'rent', due_date: '2026-10-01', paid_on: '2026-10-01', amount_cents: 130000, paid_by: null }];
+    const week = (d: string) => weekPlan(d, 'due', bills, paid, shares, false).perMember[1].sharedCents;
+    const due = (m: Member, date: string) => depositDue(m, date, 'due', bills, paid, shares);
     // Every 2 weeks, paid Oct 23: covers Oct 18–31 (phone + internet); rent falls in the Nov 6 payday's weeks.
     const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-23' };
     expect(due(biweekly, '2026-10-20')).toEqual({ cents: week('2026-10-20') + week('2026-10-27'), weeks: 2, nextPayday: null });
@@ -201,10 +202,21 @@ describe('split', () => {
     expect(week('2026-10-20') + week('2026-10-27')).toBeGreaterThan(0);
   });
 
-  it('due week: only what is due', () => {
-    const bills = [bill('rent', 130000, 'monthly', '2026-01-01'), bill('phone', 8000, 'monthly', '2026-01-15')];
-    const plan = weekPlan('2026-10-13', 'due', bills, [], shares);
-    expect(plan.sharedTotalCents).toBe(8000);
+  it('due week: unpaid bills due this week plus unpaid overdue ones, never paid or autopay', () => {
+    const bills = [
+      bill('repair', 26000, 'once', '2026-10-02'), // overdue and unpaid
+      bill('phone', 8000, 'monthly', '2026-10-15'), // due this week
+      bill('water', 6000, 'monthly', '2026-10-12'), // due this week, paid
+      { ...bill('internet', 7000, 'monthly', '2026-10-05'), autopay: true }, // overdue but autopay
+      bill('car', 40000, 'monthly', '2026-10-14', 'b'), // personal, never in the shared total
+    ];
+    const paid = [{ id: 'p', household_id: 'h', bill_id: 'water', due_date: '2026-10-12', paid_on: '2026-10-12', amount_cents: 6000, paid_by: null }];
+    expect(weekPlan('2026-10-13', 'due', bills, paid, shares).sharedTotalCents).toBe(34000);
+    expect(weekPlan('2026-10-13', 'due', bills, paid, shares, false).sharedTotalCents).toBe(8000);
+    // A multi-week deposit counts the overdue repair once.
+    const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-16' };
+    const mine = (d: string, overdue?: boolean) => weekPlan(d, 'due', bills, paid, shares, overdue).perMember[1].sharedCents;
+    expect(depositDue(biweekly, '2026-10-13', 'due', bills, paid, shares).cents).toBe(mine('2026-10-13') + mine('2026-10-20', false));
   });
 
   it('leftover: month income minus split shared bills and own personal bills', () => {
