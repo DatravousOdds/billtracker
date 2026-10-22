@@ -1,6 +1,6 @@
 import type { Bill, Contribution, Household, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
 import { addDays, weekStart } from './dates';
-import { monthlyIncome, paydays, type IncomeResult } from './income';
+import { monthlyIncome, paydays, PER_YEAR, type IncomeResult } from './income';
 import { splitByRatio } from './money';
 import { dueDates, monthlyEquivalent } from './recurrence';
 
@@ -143,6 +143,10 @@ export interface DepositDue {
   weeks: number;
   /** Set in a week without a payday: when they're next paid. */
   nextPayday: ISODate | null;
+  /** Most they can deposit this week: one paycheck (a week's earnings when depositing weekly). null = no income entered. */
+  limitCents: number | null;
+  /** Their share that didn't fit in the paycheck. */
+  shortCents: number;
 }
 
 /**
@@ -150,6 +154,7 @@ export interface DepositDue {
  * Without a saved payday it's this week's share. With one, nothing is asked in weeks
  * without a payday, and a payday week covers it and every week until the next payday week
  * (the paycheck has to last until the next one).
+ * Never more than they earn: capped at `limitCents`, the rest reported as `shortCents`.
  */
 export function depositDue(
   member: Member,
@@ -164,19 +169,26 @@ export function depositDue(
     weekPlan(d, mode, bills, payments, shares, overdue).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
   const start = weekStart(date);
   const end = addDays(start, 6);
-  const weekly = { cents: share(start), weeks: 1, nextPayday: null };
-  if (!member.payday) return weekly;
+  const monthly = shares.find((s) => s.member.user_id === member.user_id)?.income.monthlyCents ?? 0;
+  const capped = (raw: number, weeks: number, nextPayday: ISODate | null, perYear: number): DepositDue => {
+    const limitCents = monthly > 0 ? Math.round((monthly * 12) / perYear) : null;
+    const cents = limitCents === null ? raw : Math.min(raw, limitCents);
+    return { cents, weeks, nextPayday, limitCents, shortCents: raw - cents };
+  };
+  const weekly = () => capped(share(start), 1, null, 52);
+  if (!member.payday) return weekly();
+  const paycheck = PER_YEAR[member.pay_frequency];
   if (!paydays(member, start, end).length) {
     const next = paydays(member, addDays(end, 1), addDays(end, 62))[0];
     // Every schedule pays within 62 days; no payday means a bad saved date, so keep asking weekly.
-    return next ? { cents: 0, weeks: 0, nextPayday: next } : weekly;
+    return next ? capped(0, 0, next, paycheck) : weekly();
   }
   // Walk forward to the next payday week (at most 6 weeks; monthly pay is the longest gap).
   let weeks = 1;
   while (weeks < 6 && !paydays(member, addDays(start, 7 * weeks), addDays(start, 7 * weeks + 6)).length) weeks++;
   let cents = 0;
   for (let i = 0; i < weeks; i++) cents += share(addDays(start, 7 * i), i === 0);
-  return { cents, weeks, nextPayday: null };
+  return capped(cents, weeks, null, paycheck);
 }
 
 export interface Leftover {
