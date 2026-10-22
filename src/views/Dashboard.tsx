@@ -11,7 +11,7 @@ import { toast } from '../ui/toast';
 
 export function DashboardView() {
   const s = useAppState();
-  const [deposit, setDeposit] = useState<number | null>(null);
+  const [deposit, setDeposit] = useState<{ amount: number; max: number | null } | null>(null);
   const today = todayISO();
   const sh = shares();
   const plan = weekPlan(today, s.household.weekly_mode, s.bills, s.payments, sh);
@@ -113,12 +113,13 @@ export function DashboardView() {
                     <div><span>{later === 1 ? 'Next week' : `Next ${later} weeks`}</span><span>{formatCents(due.cents - p.sharedCents)}</span></div>
                   </div>
                 )}
+                {due.shortCents > 0 && <div className="small danger-text">{formatCents(due.shortCents)} more than {isMe ? 'your' : 'their'} paycheck covers</div>}
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
                 {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
                 {due.weeks === 0 && done === 0 ? null
                   : done >= due.cents && done > 0 ? <span className="pill paid">✓ Deposited</span>
-                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit(due.cents - done)}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
+                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit({ amount: due.cents - done, max: due.limitCents === null ? null : due.limitCents - done })}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
                   : <span className="badge person-status">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
                 {last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
               </div>
@@ -173,7 +174,7 @@ export function DashboardView() {
         <span aria-hidden="true">›</span>
       </a>
 
-      {deposit !== null && <DepositSheet amountCents={deposit} weekStart={plan.weekStart} onClose={() => setDeposit(null)} />}
+      {deposit !== null && <DepositSheet amountCents={deposit.amount} maxCents={deposit.max} weekStart={plan.weekStart} onClose={() => setDeposit(null)} />}
     </section>
   );
 }
@@ -207,12 +208,15 @@ function RequestCard({ r }: { r: BillRequest }) {
   );
 }
 
-function DepositSheet({ amountCents, weekStart, onClose }: { amountCents: number; weekStart: string; onClose: () => void }) {
+function DepositSheet({ amountCents, maxCents, weekStart, onClose }: { amountCents: number; maxCents: number | null; weekStart: string; onClose: () => void }) {
   const [busy, run] = useBusy();
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const amount = parseDollars(String(new FormData(e.currentTarget).get('amount')));
     if (amount === null) return toast('Enter an amount like 120.50', 'error');
+    if (maxCents !== null && amount > maxCents) {
+      return toast(`That's more than your paycheck. You can deposit up to ${formatCents(Math.max(maxCents, 0))} this week.`, 'error');
+    }
     run(async () => {
       await addContribution(weekStart, amount);
       onClose();
