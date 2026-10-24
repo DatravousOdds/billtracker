@@ -81,7 +81,7 @@ describe('recurrence', () => {
     const bills = [
       { id: 'dental', category: 'Loans' },
       { id: 'phone', category: 'Utilities' },
-      { id: 'upstart', category: 'Loans' },
+      { id: 'upstart', category: 'loans' },
     ];
     expect(groupByCategory(bills).map(([c, list]) => [c, list.map((b) => b.id)]))
       .toEqual([['Loans', ['dental', 'upstart']], ['Utilities', ['phone']]]);
