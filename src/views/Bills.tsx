@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState, type FormEvent } from 'react';
 import { addDays, formatShort, todayISO } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import { dueDates, monthlyEquivalent, nextDue, RECURRENCE_LABEL, sortByNextDue } from '../logic/recurrence';
+import { dueDates, groupByCategory, monthlyEquivalent, nextDue, RECURRENCE_LABEL, sortByNextDue } from '../logic/recurrence';
 import type { Bill, Recurrence } from '../types';
 import {
   deleteBill, getState, memberName, requestOwnership, saveBill, type BillInput,
@@ -17,7 +17,7 @@ export function BillsView() {
   const s = useAppState();
   // null = adding a new bill
   const [editing, setEditing] = useState<{ bill: Bill | null } | null>(null);
-  const [desc, setDesc] = useState(true);
+  const [desc, setDesc] = useState(false);
   const today = todayISO();
   const bills = sortByNextDue(s.bills, today, desc);
   const active = bills.filter((b) => b.active);
@@ -38,13 +38,20 @@ export function BillsView() {
             {b.autopay && <> <span className="badge">Autopay</span></>}
             {pending && <> <span className="badge warn">Change pending</span></>}
           </div>
-          <div className="occ-sub">{RECURRENCE_LABEL[b.recurrence]} · {b.category}{next ? ` · next ${formatShort(next)}` : ' · no upcoming date'}</div>
+          <div className="occ-sub">{RECURRENCE_LABEL[b.recurrence]}{next ? ` · next ${formatShort(next)}` : ' · no upcoming date'}</div>
         </div>
         <div className="occ-amt">{formatCents(b.amount_cents)}</div>
         <span className="chev" aria-hidden="true">›</span>
       </li>
     );
   };
+
+  const grouped = (list: Bill[], dim = false) => groupByCategory(list).map(([category, bs]) => (
+    <Fragment key={category}>
+      <h3 className="cat-title">{category}</h3>
+      <ul className={dim ? 'list dim' : 'list'}>{bs.map(row)}</ul>
+    </Fragment>
+  ));
 
   const personalByOwner = s.members
     .map((m) => ({ m, list: personal.filter((b) => b.owner_id === m.user_id) }))
@@ -67,19 +74,19 @@ export function BillsView() {
       </div>
 
       <h2 className="section-title">Shared · split by income</h2>
-      {shared.length ? <ul className="list">{shared.map(row)}</ul> : <p className="empty">No shared bills yet. Add rent, utilities, and so on.</p>}
+      {shared.length ? grouped(shared) : <p className="empty">No shared bills yet. Add rent, utilities, and so on.</p>}
 
       {personalByOwner.map((g) => (
         <Fragment key={g.m.user_id}>
           <h2 className="section-title">{g.m.display_name}'s personal bills</h2>
-          <ul className="list">{g.list.map(row)}</ul>
+          {grouped(g.list)}
         </Fragment>
       ))}
 
       {paused.length > 0 && (
         <>
           <h2 className="section-title muted">Paused</h2>
-          <ul className="list dim">{paused.map(row)}</ul>
+          {grouped(paused, true)}
         </>
       )}
 

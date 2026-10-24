@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { addMonths, weekStart } from '../src/logic/dates';
 import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded, paydays } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
-import { dueDates, sortByNextDue } from '../src/logic/recurrence';
+import { dueDates, groupByCategory, sortByNextDue } from '../src/logic/recurrence';
 import { depositDue, incomeShares, ledger, leftover, needsConfirming, weekPlan } from '../src/logic/split';
 import type { Bill, Member, Paycheck } from '../src/types';
 
@@ -76,6 +76,15 @@ describe('recurrence', () => {
     const names = (desc: boolean) => sortByNextDue(bills, '2026-10-18', desc).map((b) => b.id);
     expect(names(true)).toEqual(['car', 'rent', 'phone', 'done']);
     expect(names(false)).toEqual(['phone', 'rent', 'car', 'done']);
+  });
+  it('groups bills by category in order of each group\'s first bill', () => {
+    const bills = [
+      { id: 'dental', category: 'Loans' },
+      { id: 'phone', category: 'Utilities' },
+      { id: 'upstart', category: 'Loans' },
+    ];
+    expect(groupByCategory(bills).map(([c, list]) => [c, list.map((b) => b.id)]))
+      .toEqual([['Loans', ['dental', 'upstart']], ['Utilities', ['phone']]]);
   });
 });
 
