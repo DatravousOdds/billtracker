@@ -90,7 +90,7 @@ export function DashboardView() {
         <div className="people">
           {plan.perMember.map((p) => {
             const isMe = p.member.user_id === s.userId;
-            const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh);
+            const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh, s.contributions);
             const done = deposited(p.member.user_id);
             // contributions are sorted newest first, so the first match is the partner's latest.
             const last = !isMe ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
