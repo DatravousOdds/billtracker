@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type FormEvent } from 'react';
 import { addDays, formatShort, todayISO } from '../logic/dates';
 import { FREQUENCY_LABEL, PER_YEAR, paychecksNeeded, paydays } from '../logic/income';
 import { formatCents, parseDollars, centsToInput, splitByRatio } from '../logic/money';
@@ -9,54 +9,15 @@ import { useAppState, useBusy } from '../ui/hooks';
 import { AsyncButton, You, pct } from '../ui/parts';
 import { toast } from '../ui/toast';
 
-type GuideTarget = 'mode' | 'amount' | 'frequency' | 'save';
-const GUIDE: { target: GuideTarget; title: string; body: ReactNode }[] = [
-  { target: 'mode', title: 'Choose how you’re paid', body: <>Pick <strong>Fixed</strong> if your paycheck is about the same every time. Pick <strong>Log each paycheck</strong> if it changes, like hourly pay, tips or commission.</> },
-  { target: 'amount', title: 'Enter one paycheck', body: <>Type your take-home pay from <strong>one</strong> paycheck, after taxes, like <strong>1,250.00</strong>. Don’t enter your yearly salary.</> },
-  { target: 'frequency', title: 'Pick how often you’re paid', body: 'Weekly, every two weeks and so on. The app uses this to work out your monthly income.' },
-  { target: 'save', title: 'Tap Save pay', body: <>Your share of the bills updates right away. After that, add your bills on the <a href="#/bills">Bills</a> tab.</> },
-];
-// Per user: partners often share one device.
-const guideKey = (userId: string) => `incomeGuideSkipped:${userId}`;
-
-function guideSkipped(userId: string): boolean {
-  try { return localStorage.getItem(guideKey(userId)) === '1'; } catch { return false; }
-}
-function saveGuideSkipped(userId: string, skipped: boolean) {
-  try { skipped ? localStorage.setItem(guideKey(userId), '1') : localStorage.removeItem(guideKey(userId)); } catch { /* private mode: guide just reappears */ }
-}
-
 export function IncomeView() {
   const s = useAppState();
   const sh = shares();
-  const [step, setStep] = useState(0);
-  const [skipped, setSkipped] = useState(() => guideSkipped(s.userId));
-  const root = useRef<HTMLElement>(null);
-  const moved = useRef(false);
 
   // Same "no income yet" test the dashboard uses, so the two screens agree.
   const needsPay = sh.find((x) => x.member.user_id === s.userId)?.income.monthlyCents === 0;
-  const showGuide = needsPay && !skipped;
-
-  const goTo = (i: number, skip = skipped) => {
-    moved.current = true;
-    saveGuideSkipped(s.userId, skip);
-    setSkipped(skip);
-    setStep(i);
-  };
-
-  // The clicked button may be gone; move focus to the new step so keyboard and screen reader users follow along.
-  useEffect(() => {
-    if (!moved.current) return;
-    moved.current = false;
-    root.current?.querySelector<HTMLElement>('.guide h2, [data-guide-show]')?.focus({ preventScroll: true });
-    root.current?.querySelector('.guide-on')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [step, skipped]);
-
-  const highlight = showGuide ? GUIDE[step].target : null;
 
   return (
-    <section className="view" ref={root}>
+    <section className="view">
       <div className="view-head">
         <div>
           <h1>Income</h1>
@@ -66,40 +27,25 @@ export function IncomeView() {
         </div>
       </div>
 
-      {showGuide ? (
-        <div className="card request guide" aria-live="polite">
-          <div className="guide-head">
-            <span className="muted small">Set up your income · Step {step + 1} of {GUIDE.length}</span>
-            <button type="button" className="btn ghost sm" onClick={() => goTo(0, true)}>Skip guide</button>
-          </div>
-          <h2 tabIndex={-1}>{GUIDE[step].title}</h2>
-          <p>{GUIDE[step].body}</p>
-          <div className="guide-nav">
-            {step > 0 && <button type="button" className="btn ghost sm" onClick={() => goTo(step - 1)}>Back</button>}
-            {step < GUIDE.length - 1
-              ? <button type="button" className="btn primary sm" onClick={() => goTo(step + 1)}>Next</button>
-              : <button type="button" className="btn primary sm" onClick={() => goTo(0, true)}>Got it</button>}
-          </div>
-        </div>
-      ) : needsPay ? (
+      {needsPay && (
         <div className="card request">
-          <strong>One last step:</strong> enter your usual paycheck below and tap <em>Save pay</em>. It sets your share of the bills.
-          <button type="button" className="btn ghost sm" data-guide-show onClick={() => goTo(0, false)}>Show me how</button>
+          <strong>One last step:</strong> tell us about your pay so we can work out your share of the bills.
+          <a href="#/setup" className="btn primary sm">Set up my pay</a>
         </div>
-      ) : null}
+      )}
 
       {/* Keyed on the saved split so the slider resets when either phone changes it. */}
       <SplitCard key={[s.household.split_member, s.household.split_percent, s.household.split_proposed_by, s.household.split_proposed_percent].join('|')} />
 
       <div className="stack">
-        {sh.map((share) => <MemberCard key={share.member.user_id} share={share} highlight={share.member.user_id === s.userId ? highlight : null} />)}
+        {sh.map((share) => <MemberCard key={share.member.user_id} share={share} />)}
       </div>
       {s.members.length < 2 && <p className="empty">Your partner's income shows up here once they join with code <strong>{s.household.invite_code}</strong>.</p>}
     </section>
   );
 }
 
-function MemberCard({ share: { member: m, income, ratio }, highlight }: { share: Share; highlight: GuideTarget | null }) {
+function MemberCard({ share: { member: m, income, ratio } }: { share: Share }) {
   const s = useAppState();
   const [savingPay, runPay] = useBusy();
   const [logging, runLog] = useBusy();
@@ -115,7 +61,6 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
     : income.source === 'fallback'
       ? `Log ${n} paycheck${n === 1 ? '' : 's'} to use the average (${income.paychecksUsed} so far) — using usual pay below`
       : `${formatCents(m.pay_amount_cents)} × ${PER_YEAR[m.pay_frequency]} paychecks ÷ 12 months`;
-  const hl = (target: GuideTarget) => (highlight === target ? ' guide-on' : '');
   // Next payday on or after today, worked out from the one saved.
   const nextPayday = paydays(m, todayISO(), addDays(todayISO(), 62))[0] ?? null;
 
@@ -184,7 +129,7 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
         </>
       ) : (
         <>
-          <div className={`seg full${hl('mode')}`} role="group" aria-label="Income mode">
+          <div className="seg full" role="group" aria-label="Income mode">
             <AsyncButton className={!perPay ? 'on' : ''} onClick={async () => {
               await updateMember(m.user_id, { income_mode: 'fixed' });
               toast('Using fixed income');
@@ -198,10 +143,10 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
           {/* Keyed on the saved values so the fields refresh after a save. */}
           <form className="form pay-form" onSubmit={savePay} key={`${m.pay_amount_cents}|${m.pay_frequency}|${m.payday}`}>
             <div className="grid2">
-              <label className={hl('amount')}>{perPay ? 'Usual paycheck (backup)' : 'Paycheck amount'}
+              <label>{perPay ? 'Usual paycheck (backup)' : 'Paycheck amount'}
                 <input name="amount" inputMode="decimal" placeholder="1,250.00" defaultValue={m.pay_amount_cents ? centsToInput(m.pay_amount_cents) : ''} />
               </label>
-              <label className={hl('frequency')}>Paid
+              <label>Paid
                 <select name="frequency" defaultValue={m.pay_frequency}>
                   {(Object.keys(FREQUENCY_LABEL) as PayFrequency[]).map((f) => <option key={f} value={f}>{FREQUENCY_LABEL[f]}</option>)}
                 </select>
@@ -211,7 +156,7 @@ function MemberCard({ share: { member: m, income, ratio }, highlight }: { share:
               <input name="payday" type="date" max={addDays(todayISO(), 364)} defaultValue={nextPayday ?? ''} />
               <span className="muted small">Deposits are only asked for in weeks you get paid.</span>
             </label>
-            <button className={`btn ghost sm${hl('save')}`} type="submit" disabled={savingPay}>Save pay</button>
+            <button className="btn ghost sm" type="submit" disabled={savingPay}>Save pay</button>
           </form>
 
           {perPay && (
