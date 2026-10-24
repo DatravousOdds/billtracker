@@ -141,11 +141,11 @@ export interface DepositDue {
   cents: number;
   /** How many weeks of their share this deposit covers (0 in a week without a payday). */
   weeks: number;
-  /** First day covered: payday when paying as due, else the start of this week. */
+  /** First day covered: the day after payday when paying as due, else the start of this week. */
   from: ISODate;
-  /** Last day covered: the day before the next payday when paying as due, else the end of the last week. */
+  /** Last day covered: the next payday when paying as due, else the end of the last week. */
   to: ISODate;
-  /** Pay as due: unpaid bills from before this week, asked for once on top of the weeks. */
+  /** Pay as due: unpaid bills due on or before payday, asked for once on top of the weeks. */
   overdueCents: number;
   /** Their share for each covered week, in order. */
   weekCents: number[];
@@ -159,8 +159,8 @@ export interface DepositDue {
  * What a partner should deposit in the week containing `date`.
  * Without a saved payday it's this week's share. With one, nothing is asked in weeks
  * without a payday. A payday week covers it and every week until the next payday week (smoothed),
- * or, paying as due, the bills due from payday until the day before the next payday, in 7-day
- * chunks (the paycheck has to last until they're paid again; bills before payday were the last one's).
+ * or, paying as due, the bills due from the day after payday through the next payday, in 7-day
+ * chunks (that day's pay may land after its bills), plus anything still unpaid by payday as overdue.
  */
 export function depositDue(
   member: Member,
@@ -189,21 +189,22 @@ export function depositDue(
     return next ? { cents: 0, weeks: 0, from: start, to: end, overdueCents: 0, weekCents: [], nextPayday: next, lastPayday: depositedLast ? last : null } : weekly;
   }
   // Overdue bills are asked for once, now.
-  const overdueCents = cents - share(start, false);
+  let overdueCents = cents - share(start, false);
   let weekCents: number[] = [];
   let from = start;
   let to: ISODate;
   if (mode === 'due') {
-    // Pay as due: payday until the day before the next payday, split into 7-day chunks starting on payday.
-    from = pay;
-    to = addDays(paydays(member, addDays(pay, 1), addDays(pay, 62))[0] ?? addDays(pay, 7), -1);
+    // Pay as due: the day after payday through the next payday, in 7-day chunks; unpaid by payday is overdue.
     const i = shares.findIndex((s) => s.member.user_id === member.user_id);
-    const ratios = shares.map((s) => s.ratio);
-    for (let d = pay; d <= to; d = addDays(d, 7)) {
-      const unpaid = occurrences(bills, payments, d, addDays(d, 6) < to ? addDays(d, 6) : to)
-        .filter((o) => o.bill.owner_id === null && !o.payment)
-        .reduce((s, o) => s + o.bill.amount_cents, 0);
-      weekCents.push(i < 0 ? 0 : splitByRatio(unpaid, ratios)[i]);
+    const mine = (occ: Occurrence[]) => i < 0 ? 0 : splitByRatio(
+      occ.filter((o) => o.bill.owner_id === null && !o.payment).reduce((s, o) => s + o.bill.amount_cents, 0),
+      shares.map((s) => s.ratio),
+    )[i];
+    from = addDays(pay, 1);
+    to = paydays(member, from, addDays(pay, 62))[0] ?? addDays(pay, 7);
+    overdueCents = mine(needsConfirming(bills, payments, pay));
+    for (let d = from; d <= to; d = addDays(d, 7)) {
+      weekCents.push(mine(occurrences(bills, payments, d, addDays(d, 6) < to ? addDays(d, 6) : to)));
     }
   } else {
     // Smoothed: this week up to the next payday week (at most 6 weeks; monthly pay is the longest gap).
