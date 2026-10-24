@@ -141,15 +141,24 @@ export interface DepositDue {
   cents: number;
   /** How many weeks of their share this deposit covers (0 in a week without a payday). */
   weeks: number;
+  /** Start of the first week covered: next week on a pay-as-due payday week, else this week. */
+  from: ISODate;
+  /** Pay as due: unpaid bills from before this week, asked for once on top of the weeks. */
+  overdueCents: number;
+  /** Their share for each covered week, in order. */
+  weekCents: number[];
   /** Set in a week without a payday: when they're next paid. */
   nextPayday: ISODate | null;
+  /** Set in a week without a payday: the paycheck that already covers it. */
+  lastPayday: ISODate | null;
 }
 
 /**
  * What a partner should deposit in the week containing `date`.
  * Without a saved payday it's this week's share. With one, nothing is asked in weeks
- * without a payday, and a payday week covers it and every week until the next payday week
- * (the paycheck has to last until the next one).
+ * without a payday. A payday week covers it and every week until the next payday week (smoothed),
+ * or, paying as due, the weeks after it through the next payday week (the paycheck has to last
+ * until they're paid again; this week was covered by the last one).
  */
 export function depositDue(
   member: Member,
@@ -164,19 +173,27 @@ export function depositDue(
     weekPlan(d, mode, bills, payments, shares, overdue).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
   const start = weekStart(date);
   const end = addDays(start, 6);
-  const weekly = { cents: share(start), weeks: 1, nextPayday: null };
+  const cents = share(start);
+  const weekly = { cents, weeks: 1, from: start, overdueCents: 0, weekCents: [cents], nextPayday: null, lastPayday: null };
   if (!member.payday) return weekly;
   if (!paydays(member, start, end).length) {
     const next = paydays(member, addDays(end, 1), addDays(end, 62))[0];
+    const last = paydays(member, addDays(start, -62), addDays(start, -1)).at(-1) ?? null;
     // Every schedule pays within 62 days; no payday means a bad saved date, so keep asking weekly.
-    return next ? { cents: 0, weeks: 0, nextPayday: next } : weekly;
+    return next ? { cents: 0, weeks: 0, from: start, overdueCents: 0, weekCents: [], nextPayday: next, lastPayday: last } : weekly;
   }
   // Walk forward to the next payday week (at most 6 weeks; monthly pay is the longest gap).
   let weeks = 1;
   while (weeks < 6 && !paydays(member, addDays(start, 7 * weeks), addDays(start, 7 * weeks + 6)).length) weeks++;
-  let cents = 0;
-  for (let i = 0; i < weeks; i++) cents += share(addDays(start, 7 * i), i === 0);
-  return { cents, weeks, nextPayday: null };
+  // Pay as due covers the weeks after this one, through the next payday week (the last paycheck covered this one);
+  // smoothed covers this week up to the next payday week. Overdue bills are asked for once, now.
+  const first = mode === 'due' ? 1 : 0;
+  const overdueCents = cents - share(start, false);
+  const weekCents = Array.from({ length: weeks }, (_, i) => share(addDays(start, 7 * (i + first)), false));
+  return {
+    cents: overdueCents + weekCents.reduce((s, c) => s + c, 0),
+    weeks, from: addDays(start, 7 * first), overdueCents, weekCents, nextPayday: null, lastPayday: null,
+  };
 }
 
 export interface Leftover {

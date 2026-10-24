@@ -94,7 +94,13 @@ export function DashboardView() {
             const done = deposited(p.member.user_id);
             // contributions are sorted newest first, so the first match is the partner's latest.
             const last = !isMe ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
-            const later = due.weeks - 1;
+            const rows = [
+              ...(due.overdueCents > 0 ? [['Overdue', due.overdueCents] as const] : []),
+              ...due.weekCents.map((c, i) => {
+                const wk = addDays(due.from, 7 * i);
+                return [wk === plan.weekStart ? 'This week' : `Week of ${formatShort(wk)}`, c] as const;
+              }),
+            ];
             return (
               <div className="person" key={p.member.user_id}>
                 <div className="person-top">
@@ -102,15 +108,14 @@ export function DashboardView() {
                   <span className="person-pct" title="Share of shared bills">{pct(p.ratio)}</span>
                 </div>
                 <div className="eyebrow">To deposit</div>
-                {/* The whole deposit, which on a payday week covers every week until the next payday (in either mode). */}
+                {/* The whole deposit: on a payday week it covers until the next payday (pay as due: starting next week). */}
                 <div className="person-amt">{formatCents(due.cents)}</div>
-                {due.weeks === 1 ? <div className="muted small">This week</div>
-                  : due.weeks > 1 ? <div className="muted small">Covers {formatShort(plan.weekStart)} – {formatShort(addDays(plan.weekStart, 7 * due.weeks - 1))}</div>
-                  : <div className="muted small">Nothing due until payday{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>}
-                {later > 0 && (
+                {due.weeks === 0 ? <div className="muted small">{due.lastPayday ? `Covered by your ${formatShort(due.lastPayday)} pay` : 'Nothing due until payday'}{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>
+                  : due.weeks === 1 && due.from === plan.weekStart ? <div className="muted small">This week</div>
+                  : <div className="muted small">Covers {formatShort(due.from)} – {formatShort(addDays(due.from, 7 * due.weeks - 1))}</div>}
+                {rows.length > 1 && (
                   <div className="split-rows">
-                    <div><span>This week</span><span>{formatCents(p.sharedCents)}</span></div>
-                    <div><span>{later === 1 ? 'Next week' : `Next ${later} weeks`}</span><span>{formatCents(due.cents - p.sharedCents)}</span></div>
+                    {rows.map(([label, c]) => <div key={label}><span>{label}</span><span>{formatCents(c)}</span></div>)}
                   </div>
                 )}
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
