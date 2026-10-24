@@ -172,8 +172,8 @@ describe('split', () => {
     const due = (m: Member, date: string, deposits = [deposit(b.user_id, '2026-10-04')]) => depositDue(m, date, 'smoothed', bills, [], shares, deposits);
     const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-23' };
     // Week of Oct 11–17 is covered by the Oct 9 pay; Oct 23 covers Oct 18–31; Oct 25–31 is already covered.
-    expect(due(biweekly, '2026-10-13')).toEqual({ cents: 0, weeks: 0, from: '2026-10-11', overdueCents: 0, weekCents: [], nextPayday: '2026-10-23', lastPayday: '2026-10-09' });
-    expect(due(biweekly, '2026-10-20')).toEqual({ cents: weekly * 2, weeks: 2, from: '2026-10-18', overdueCents: 0, weekCents: [weekly, weekly], nextPayday: null, lastPayday: null });
+    expect(due(biweekly, '2026-10-13')).toEqual({ cents: 0, weeks: 0, from: '2026-10-11', to: '2026-10-17', overdueCents: 0, weekCents: [], nextPayday: '2026-10-23', lastPayday: '2026-10-09' });
+    expect(due(biweekly, '2026-10-20')).toEqual({ cents: weekly * 2, weeks: 2, from: '2026-10-18', to: '2026-10-31', overdueCents: 0, weekCents: [weekly, weekly], nextPayday: null, lastPayday: null });
     expect(due(biweekly, '2026-10-27')).toMatchObject({ cents: 0, weeks: 0, nextPayday: '2026-11-06' });
     // Says which paycheck covers the week only when they deposited from it.
     expect(due(biweekly, '2026-10-13', [])).toMatchObject({ cents: 0, lastPayday: null });
@@ -190,27 +190,30 @@ describe('split', () => {
     expect(due({ ...biweekly, payday: '2028-03-03' }, '2026-10-13')).toMatchObject({ cents: weekly, weeks: 1, from: '2026-10-11' });
   });
 
-  it('pay as due: a payday deposit covers the weeks until the next payday, once the last one covered this week', () => {
+  it('pay as due: a payday deposit covers payday until the day before the next payday', () => {
     // Phone due the 22nd, internet the 28th, rent the 1st.
-    const bills = [bill('phone', 8000, 'monthly', '2026-10-22'), bill('internet', 6000, 'monthly', '2026-10-28'), bill('rent', 130000, 'monthly', '2026-10-01')];
-    const week = (d: string) => weekPlan(d, 'due', bills, [], shares, false).perMember[1].sharedCents;
+    const bills = [bill('phone', 8000, 'monthly', '2026-10-22'), bill('internet', 6000, 'monthly', '2026-10-28'), bill('rent', 130000, 'monthly', '2026-11-01')];
+    const mine = (c: number) => splitByRatio(c, shares.map((s) => s.ratio))[1];
     const due = (m: Member, date: string, deposits: string[] = []) =>
       depositDue(m, date, 'due', bills, [], shares, deposits.map((w) => deposit(b.user_id, w)));
-    // Every 2 weeks, paid Nov 6 and Nov 20. Deposited on Nov 6, so Nov 20 covers Nov 22 – Dec 5 (phone, internet, Dec rent).
-    const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-11-20' };
-    expect(due(biweekly, '2026-11-17', ['2026-11-01'])).toMatchObject({ weeks: 2, from: '2026-11-22', weekCents: [week('2026-11-24'), week('2026-12-01')] });
-    expect(week('2026-11-24') * week('2026-12-01')).toBeGreaterThan(0);
-    // Nothing deposited on Nov 6 (new member, or skipped): this week is added back.
-    expect(due(biweekly, '2026-11-17')).toMatchObject({ weeks: 3, from: '2026-11-15', weekCents: [week('2026-11-17'), week('2026-11-24'), week('2026-12-01')] });
-    // Deposited Oct 23, before the switch, when a deposit covered its own week onward (Oct 18–31): Nov 6 adds its own week back.
-    expect(due({ ...biweekly, payday: '2026-10-23' }, '2026-11-03', ['2026-10-18'])).toMatchObject({ weeks: 3, from: '2026-11-01' });
-    // The week between paydays: nothing due, covered by the Nov 6 pay only if they deposited from it.
-    expect(due(biweekly, '2026-11-10', ['2026-11-01'])).toMatchObject({ cents: 0, weeks: 0, nextPayday: '2026-11-20', lastPayday: '2026-11-06' });
-    expect(due(biweekly, '2026-11-10')).toMatchObject({ cents: 0, weeks: 0, lastPayday: null });
-    // Paid weekly: each deposit covers next week.
-    expect(due({ ...b, pay_frequency: 'weekly', payday: '2026-11-20' }, '2026-11-17', ['2026-11-08'])).toMatchObject({ weeks: 1, from: '2026-11-22' });
-    // Paid monthly on the 1st: Dec 1 covers Dec 6 through the week of the Jan 1 payday.
-    expect(due({ ...b, pay_frequency: 'monthly', payday: '2026-11-01' }, '2026-12-01', ['2026-11-01'])).toMatchObject({ weeks: 4, from: '2026-12-06' });
+    // Every 2 weeks, paid Oct 23 and Nov 6: Oct 23 covers Oct 23 – Nov 5 (internet, Nov rent), not the phone due the 22nd.
+    const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-11-06' };
+    const oct23 = { cents: mine(6000) + mine(130000), weeks: 2, from: '2026-10-23', to: '2026-11-05', overdueCents: 0, weekCents: [mine(6000), mine(130000)] };
+    expect(due(biweekly, '2026-10-24')).toMatchObject(oct23);
+    // Same whether or not they deposited on their last payday.
+    expect(due(biweekly, '2026-10-24', ['2026-10-04'])).toMatchObject(oct23);
+    // Paid bills are left out.
+    const paid = [{ id: 'p', household_id: 'h', bill_id: 'internet', due_date: '2026-10-28', paid_on: '2026-10-27', amount_cents: 6000, paid_by: null }];
+    expect(depositDue(biweekly, '2026-10-24', 'due', bills, paid, shares, []).weekCents).toEqual([0, mine(130000)]);
+    // The week between paydays: nothing due, covered by the Oct 23 pay only if they deposited from it.
+    expect(due(biweekly, '2026-10-27', ['2026-10-18'])).toMatchObject({ cents: 0, weeks: 0, nextPayday: '2026-11-06', lastPayday: '2026-10-23' });
+    expect(due(biweekly, '2026-10-27')).toMatchObject({ cents: 0, weeks: 0, lastPayday: null });
+    // Paid weekly on Fridays: each deposit covers that Friday through Thursday.
+    expect(due({ ...b, pay_frequency: 'weekly', payday: '2026-11-20' }, '2026-11-17')).toMatchObject({ weeks: 1, from: '2026-11-20', to: '2026-11-26' });
+    // Paid monthly on the 1st: Dec 1 covers all of December, the last chunk only Dec 29–31.
+    expect(due({ ...b, pay_frequency: 'monthly', payday: '2026-11-01' }, '2026-12-01')).toMatchObject({
+      weeks: 5, from: '2026-12-01', to: '2026-12-31', weekCents: [mine(130000), 0, 0, mine(14000), 0],
+    });
   });
 
   it('due week: unpaid bills due this week plus unpaid overdue ones, never paid or autopay', () => {
@@ -224,13 +227,13 @@ describe('split', () => {
     const paid = [{ id: 'p', household_id: 'h', bill_id: 'water', due_date: '2026-10-12', paid_on: '2026-10-12', amount_cents: 6000, paid_by: null }];
     expect(weekPlan('2026-10-13', 'due', bills, paid, shares).sharedTotalCents).toBe(34000);
     expect(weekPlan('2026-10-13', 'due', bills, paid, shares, false).sharedTotalCents).toBe(8000);
-    // A payday deposit asks for the overdue repair once, on top of the weeks (this one too: nothing was deposited on Oct 2).
+    // A payday deposit asks for the overdue repair once, on top of Oct 16–29 (nothing else is due then).
     const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-16' };
     const mine = (d: string, overdue?: boolean) => weekPlan(d, 'due', bills, paid, shares, overdue).perMember[1].sharedCents;
     const overdue = mine('2026-10-13') - mine('2026-10-13', false);
     expect(overdue).toBeGreaterThan(0);
     expect(depositDue(biweekly, '2026-10-13', 'due', bills, paid, shares, [])).toMatchObject({
-      cents: overdue + mine('2026-10-13', false) + mine('2026-10-20', false) + mine('2026-10-27', false), overdueCents: overdue, weeks: 3,
+      cents: overdue, overdueCents: overdue, weeks: 2, from: '2026-10-16', to: '2026-10-29',
     });
   });
 

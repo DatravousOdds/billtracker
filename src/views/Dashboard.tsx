@@ -112,7 +112,7 @@ export function DashboardView() {
                 <div className="person-amt">{formatCents(due.cents)}</div>
                 {due.weeks === 0 ? <div className="muted small">{due.lastPayday ? `Covered by your ${formatShort(due.lastPayday)} pay` : 'Nothing due until payday'}{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>
                   : due.weeks === 1 && due.from === plan.weekStart ? <div className="muted small">This week</div>
-                  : <div className="muted small">Covers {formatShort(due.from)} – {formatShort(addDays(due.from, 7 * due.weeks - 1))}</div>}
+                  : <div className="muted small">Covers {formatShort(due.from)} – {formatShort(due.to)}</div>}
                 {rows.length > 1 && (
                   <div className="split-rows">
                     {rows.map(([label, c]) => <div key={label}><span>{label}</span><span>{formatCents(c)}</span></div>)}
