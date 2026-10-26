@@ -1,6 +1,6 @@
 import type { Bill, Contribution, Household, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
 import { addDays, weekStart } from './dates';
-import { monthlyIncome, paydays, type IncomeResult } from './income';
+import { monthlyIncome, paydays, PER_YEAR, type IncomeResult } from './income';
 import { splitByRatio } from './money';
 import { dueDates, monthlyEquivalent } from './recurrence';
 
@@ -153,6 +153,10 @@ export interface DepositDue {
   nextPayday: ISODate | null;
   /** Set in a week without a payday they deposited for: the paycheck that already covers it. */
   lastPayday: ISODate | null;
+  /** Most they can deposit: one paycheck, or a week's earnings without a usable payday. */
+  limitCents: number | null;
+  /** Their share that did not fit in the paycheck. */
+  shortCents: number;
 }
 
 /**
@@ -161,6 +165,7 @@ export interface DepositDue {
  * without a payday. A payday week covers it and every week until the next payday week (smoothed),
  * or, paying as due, the bills due from the day after payday through the next payday, in 7-day
  * chunks (that day's pay may land after its bills), plus anything still unpaid by payday as overdue.
+ * Capped at one paycheck, with the remaining share reported as shortCents.
  */
 export function depositDue(
   member: Member,
@@ -176,9 +181,15 @@ export function depositDue(
     weekPlan(d, mode, bills, payments, shares, overdue).perMember.find((p) => p.member.user_id === member.user_id)?.sharedCents ?? 0;
   const start = weekStart(date);
   const end = addDays(start, 6);
+  const monthly = shares.find((s) => s.member.user_id === member.user_id)?.income.monthlyCents ?? 0;
+  const capped = (plan: Omit<DepositDue, 'limitCents' | 'shortCents'>, perYear: number): DepositDue => {
+    const limitCents = monthly > 0 ? Math.round((monthly * 12) / perYear) : null;
+    const cents = limitCents === null ? plan.cents : Math.min(plan.cents, limitCents);
+    return { ...plan, cents, limitCents, shortCents: plan.cents - cents };
+  };
   const cents = share(start);
   const weekly = { cents, weeks: 1, from: start, to: end, overdueCents: 0, weekCents: [cents], nextPayday: null, lastPayday: null };
-  if (!member.payday) return weekly;
+  if (!member.payday) return capped(weekly, 52);
   const pay = paydays(member, start, end)[0];
   if (!pay) {
     const next = paydays(member, addDays(end, 1), addDays(end, 62))[0];
@@ -186,7 +197,7 @@ export function depositDue(
     const last = paydays(member, addDays(start, -62), addDays(start, -1)).at(-1) ?? null;
     const depositedLast = !!last && contributions.some((c) => c.member_id === member.user_id && c.week_start === weekStart(last));
     // Every schedule pays within 62 days; no payday means a bad saved date, so keep asking weekly.
-    return next ? { cents: 0, weeks: 0, from: start, to: end, overdueCents: 0, weekCents: [], nextPayday: next, lastPayday: depositedLast ? last : null } : weekly;
+    return next ? capped({ cents: 0, weeks: 0, from: start, to: end, overdueCents: 0, weekCents: [], nextPayday: next, lastPayday: depositedLast ? last : null }, PER_YEAR[member.pay_frequency]) : capped(weekly, 52);
   }
   // Overdue bills are asked for once, now.
   let overdueCents = cents - share(start, false);
@@ -213,10 +224,10 @@ export function depositDue(
     weekCents = Array.from({ length: weeks }, (_, w) => share(addDays(start, 7 * w), false));
     to = addDays(start, 7 * weeks - 1);
   }
-  return {
+  return capped({
     cents: overdueCents + weekCents.reduce((s, c) => s + c, 0),
     weeks: weekCents.length, from, to, overdueCents, weekCents, nextPayday: null, lastPayday: null,
-  };
+  }, PER_YEAR[member.pay_frequency]);
 }
 
 export interface Leftover {
