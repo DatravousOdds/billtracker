@@ -141,20 +141,31 @@ export interface DepositDue {
   cents: number;
   /** How many weeks of their share this deposit covers (0 in a week without a payday). */
   weeks: number;
+  /** First day covered: the day after payday when paying as due, else the start of this week. */
+  from: ISODate;
+  /** Last day covered: the next payday when paying as due, else the end of the last week. */
+  to: ISODate;
+  /** Pay as due: unpaid bills due on or before payday, asked for once on top of the weeks. */
+  overdueCents: number;
+  /** Their share for each covered week, in order. */
+  weekCents: number[];
   /** Set in a week without a payday: when they're next paid. */
   nextPayday: ISODate | null;
-  /** Most they can deposit this week: one paycheck (a week's earnings when depositing weekly). null = no income entered. */
+  /** Set in a week without a payday they deposited for: the paycheck that already covers it. */
+  lastPayday: ISODate | null;
+  /** Most they can deposit: one paycheck, or a week's earnings without a usable payday. */
   limitCents: number | null;
-  /** Their share that didn't fit in the paycheck. */
+  /** Their share that did not fit in the paycheck. */
   shortCents: number;
 }
 
 /**
  * What a partner should deposit in the week containing `date`.
  * Without a saved payday it's this week's share. With one, nothing is asked in weeks
- * without a payday, and a payday week covers it and every week until the next payday week
- * (the paycheck has to last until the next one).
- * Never more than they earn: capped at `limitCents`, the rest reported as `shortCents`.
+ * without a payday. A payday week covers it and every week until the next payday week (smoothed),
+ * or, paying as due, the bills due from the day after payday through the next payday, in 7-day
+ * chunks (that day's pay may land after its bills), plus anything still unpaid by payday as overdue.
+ * Capped at one paycheck, with the remaining share reported as shortCents.
  */
 export function depositDue(
   member: Member,
@@ -163,6 +174,7 @@ export function depositDue(
   bills: Bill[],
   payments: Payment[],
   shares: Share[],
+  contributions: Contribution[],
 ): DepositDue {
   // Overdue bills belong to the first week only, or a multi-week deposit would count them again.
   const share = (d: ISODate, overdue = true) =>
@@ -170,25 +182,52 @@ export function depositDue(
   const start = weekStart(date);
   const end = addDays(start, 6);
   const monthly = shares.find((s) => s.member.user_id === member.user_id)?.income.monthlyCents ?? 0;
-  const capped = (raw: number, weeks: number, nextPayday: ISODate | null, perYear: number): DepositDue => {
+  const capped = (plan: Omit<DepositDue, 'limitCents' | 'shortCents'>, perYear: number): DepositDue => {
     const limitCents = monthly > 0 ? Math.round((monthly * 12) / perYear) : null;
-    const cents = limitCents === null ? raw : Math.min(raw, limitCents);
-    return { cents, weeks, nextPayday, limitCents, shortCents: raw - cents };
+    const cents = limitCents === null ? plan.cents : Math.min(plan.cents, limitCents);
+    return { ...plan, cents, limitCents, shortCents: plan.cents - cents };
   };
-  const weekly = () => capped(share(start), 1, null, 52);
-  if (!member.payday) return weekly();
-  const paycheck = PER_YEAR[member.pay_frequency];
-  if (!paydays(member, start, end).length) {
+  const cents = share(start);
+  const weekly = { cents, weeks: 1, from: start, to: end, overdueCents: 0, weekCents: [cents], nextPayday: null, lastPayday: null };
+  if (!member.payday) return capped(weekly, 52);
+  const pay = paydays(member, start, end)[0];
+  if (!pay) {
     const next = paydays(member, addDays(end, 1), addDays(end, 62))[0];
+    // Did they deposit on their last payday? That deposit covers this week.
+    const last = paydays(member, addDays(start, -62), addDays(start, -1)).at(-1) ?? null;
+    const depositedLast = !!last && contributions.some((c) => c.member_id === member.user_id && c.week_start === weekStart(last));
     // Every schedule pays within 62 days; no payday means a bad saved date, so keep asking weekly.
-    return next ? capped(0, 0, next, paycheck) : weekly();
+    return next ? capped({ cents: 0, weeks: 0, from: start, to: end, overdueCents: 0, weekCents: [], nextPayday: next, lastPayday: depositedLast ? last : null }, PER_YEAR[member.pay_frequency]) : capped(weekly, 52);
   }
-  // Walk forward to the next payday week (at most 6 weeks; monthly pay is the longest gap).
-  let weeks = 1;
-  while (weeks < 6 && !paydays(member, addDays(start, 7 * weeks), addDays(start, 7 * weeks + 6)).length) weeks++;
-  let cents = 0;
-  for (let i = 0; i < weeks; i++) cents += share(addDays(start, 7 * i), i === 0);
-  return capped(cents, weeks, null, paycheck);
+  // Overdue bills are asked for once, now.
+  let overdueCents = cents - share(start, false);
+  let weekCents: number[] = [];
+  let from = start;
+  let to: ISODate;
+  if (mode === 'due') {
+    // Pay as due: the day after payday through the next payday, in 7-day chunks; unpaid by payday is overdue.
+    const i = shares.findIndex((s) => s.member.user_id === member.user_id);
+    const mine = (occ: Occurrence[]) => i < 0 ? 0 : splitByRatio(
+      occ.filter((o) => o.bill.owner_id === null && !o.payment).reduce((s, o) => s + o.bill.amount_cents, 0),
+      shares.map((s) => s.ratio),
+    )[i];
+    from = addDays(pay, 1);
+    to = paydays(member, from, addDays(pay, 62))[0] ?? addDays(pay, 7);
+    overdueCents = mine(needsConfirming(bills, payments, pay));
+    for (let d = from; d <= to; d = addDays(d, 7)) {
+      weekCents.push(mine(occurrences(bills, payments, d, addDays(d, 6) < to ? addDays(d, 6) : to)));
+    }
+  } else {
+    // Smoothed: this week up to the next payday week (at most 6 weeks; monthly pay is the longest gap).
+    let weeks = 1;
+    while (weeks < 6 && !paydays(member, addDays(start, 7 * weeks), addDays(start, 7 * weeks + 6)).length) weeks++;
+    weekCents = Array.from({ length: weeks }, (_, w) => share(addDays(start, 7 * w), false));
+    to = addDays(start, 7 * weeks - 1);
+  }
+  return capped({
+    cents: overdueCents + weekCents.reduce((s, c) => s + c, 0),
+    weeks: weekCents.length, from, to, overdueCents, weekCents, nextPayday: null, lastPayday: null,
+  }, PER_YEAR[member.pay_frequency]);
 }
 
 export interface Leftover {

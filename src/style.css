@@ -161,15 +161,11 @@ main { max-width: 640px; margin: 0 auto; }
 .card.balance > span { font-size: 1.4rem; color: var(--muted); }
 
 .card.member { display: grid; gap: 10px; }
-.card.guide { display: grid; gap: 8px; }
-.card.guide h2, .card.guide p { margin: 0; }
-.guide-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.guide-nav { display: flex; justify-content: flex-end; gap: 8px; }
-.guide-on { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 10px; }
 .card.member h2 { font-size: 1.15rem; }
 
 /* ---------- Lists ---------- */
 .section-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 8px 2px -6px; }
+.cat-title { font-size: 0.85rem; font-weight: 500; color: var(--muted); margin: 0 2px -8px; }
 .list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .list > li { border-top: 1px solid var(--line); }
 .list > li:first-child { border-top: 0; }
@@ -209,6 +205,7 @@ button { font: inherit; }
 .btn.danger-ghost { background: transparent; color: var(--danger); border-color: transparent; }
 .btn.sm { padding: 7px 12px; font-size: 0.88rem; border-radius: 10px; }
 .btn.block { width: 100%; }
+a.btn { display: inline-block; text-decoration: none; }
 .btn[disabled], .pill[disabled] { opacity: 0.55; pointer-events: none; }
 .row-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 
@@ -285,6 +282,12 @@ dialog.sheet[open] { animation: up 0.18s ease-out; }
 .logo { color: var(--accent); }
 .or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.85rem; }
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* ---------- First-run setup ---------- */
+.setup p { margin: 0; }
+.setup-top { display: flex; justify-content: space-between; align-items: center; }
+.setup progress { width: 100%; height: 8px; accent-color: var(--accent); }
+.choices { display: grid; gap: 10px; }
 
 /* ---------- Toast ---------- */
 #toast {

@@ -14,6 +14,7 @@ import { DashboardView } from './views/Dashboard';
 import { HistoryView } from './views/History';
 import { IncomeView } from './views/Income';
 import { SettingsView } from './views/Settings';
+import { SetupView } from './views/Setup';
 import { UpcomingView } from './views/Upcoming';
 
 const ROUTES: Record<string, { label: string; icon: string; View: () => ReactNode; nav: boolean }> = {
@@ -93,7 +94,7 @@ export function App() {
       return (
         <OnboardingView onDone={() => {
           // The split depends on income, so new members set theirs first.
-          location.hash = '#/income';
+          location.hash = '#/setup';
           reroute.current(screen.userId);
         }} />
       );
@@ -126,6 +127,8 @@ function Shell() {
   // Null for a moment while switching accounts.
   if (!s) return <div className="loading">Loading…</div>;
   if (role !== null && hash === 'admin') return <AdminPage me={{ userId: s.userId, householdId: s.household.id }} />;
+  // Full screen, without the tabs, so a new member only sees one question at a time.
+  if (hash === 'setup') return <main id="main" key={s.userId}><SetupView /></main>;
 
   const route = hash in ROUTES ? hash : '';
   const { View } = ROUTES[route];

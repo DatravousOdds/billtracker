@@ -69,6 +69,18 @@ export function sortByNextDue<T extends Pick<Bill, 'recurrence' | 'start_date'>>
     .map((x) => x.bill);
 }
 
+/** Groups bills by category, keeping their order; groups appear in order of their first bill. */
+export function groupByCategory<T extends Pick<Bill, 'category'>>(bills: T[]): [string, T[]][] {
+  // Categories are typed freely, so "utilities" joins "Utilities" under the first bill's spelling.
+  const groups = new Map<string, [string, T[]]>();
+  for (const b of bills) {
+    const group = groups.get(b.category.toLowerCase());
+    if (group) group[1].push(b);
+    else groups.set(b.category.toLowerCase(), [b.category, [b]]);
+  }
+  return [...groups.values()];
+}
+
 /** A bill's average cost per month, in cents (one-time bills count as 0). */
 export function monthlyEquivalent(bill: Pick<Bill, 'recurrence' | 'amount_cents'>): number {
   return bill.amount_cents * PER_MONTH[bill.recurrence];
