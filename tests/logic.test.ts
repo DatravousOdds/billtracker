@@ -3,7 +3,7 @@ import { addMonths, weekStart } from '../src/logic/dates';
 import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded, paydays } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
 import { dueDates, groupByCategory, sortByNextDue } from '../src/logic/recurrence';
-import { depositDue, incomeShares, ledger, leftover, needsConfirming, weekPlan } from '../src/logic/split';
+import { depositDue, incomeShares, ledger, leftover, needsConfirming, payWindow, periodPlan, weekPlan } from '../src/logic/split';
 import type { Bill, Member, Paycheck } from '../src/types';
 
 const member = (id: string, pay: number, freq: Member['pay_frequency'], mode: Member['income_mode'] = 'fixed'): Member => ({
@@ -278,6 +278,28 @@ describe('split', () => {
     expect(depositDue(biweekly, '2026-10-13', 'due', bills, paid, shares, [])).toMatchObject({
       cents: overdue, overdueCents: overdue, weeks: 2, from: '2026-10-17', to: '2026-10-30',
     });
+  });
+
+  it('pay window: the day after the last payday through the next one', () => {
+    const fridays = { payday: '2026-10-30', pay_frequency: 'weekly' as const };
+    expect(payWindow(fridays, '2026-10-31')).toEqual({ from: '2026-10-31', to: '2026-11-06' });
+    // On payday the window rolls to the next one.
+    expect(payWindow(fridays, '2026-11-06')).toEqual({ from: '2026-11-07', to: '2026-11-13' });
+    expect(payWindow({ ...fridays, payday: null }, '2026-10-31')).toBeNull();
+  });
+
+  it('due period: unpaid shared bills in the window plus overdue ones from before it', () => {
+    const bills = [
+      bill('repair', 26000, 'once', '2026-10-28'), // before the window, unpaid
+      bill('phone', 8000, 'monthly', '2026-11-03'), // in the window
+      bill('water', 6000, 'monthly', '2026-11-02'), // in the window, paid
+      { ...bill('internet', 7000, 'monthly', '2026-10-29'), autopay: true }, // before the window but autopay
+      bill('car', 40000, 'monthly', '2026-11-04', 'b'), // personal, never in the shared total
+    ];
+    const paid = [{ id: 'p', household_id: 'h', bill_id: 'water', due_date: '2026-11-02', paid_on: '2026-11-02', amount_cents: 6000, paid_by: null }];
+    const plan = periodPlan('2026-10-31', '2026-11-06', 'due', bills, paid, shares);
+    expect(plan.overdueCents).toBe(26000);
+    expect(plan.sharedTotalCents - plan.overdueCents).toBe(8000);
   });
 
   it('leftover: month income minus split shared bills and own personal bills', () => {

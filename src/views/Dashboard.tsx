@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { addDays, addMonths, formatShort, todayISO, toDate } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import { depositDue, ledger, leftover, needsConfirming, weekPlan, type Leftover } from '../logic/split';
+import { depositDue, ledger, leftover, needsConfirming, payWindow, periodPlan, weekPlan, type Leftover } from '../logic/split';
 import { addContribution, decideRequest, memberName, shares } from '../store';
 import type { BillRequest } from '../types';
 import { useAppState, useBusy } from '../ui/hooks';
@@ -15,14 +15,19 @@ export function DashboardView() {
   const today = todayISO();
   const sh = shares();
   const plan = weekPlan(today, s.household.weekly_mode, s.bills, s.payments, sh);
+  const smoothed = plan.mode === 'smoothed';
+  // Pay as due with your payday saved: the top card and its list follow your pay window, not the calendar week.
+  const me = sh.find((x) => x.member.user_id === s.userId)?.member;
+  const win = !smoothed && me ? payWindow(me, today) : null;
+  const top = win ? periodPlan(win.from, win.to, 'due', s.bills, s.payments, sh) : plan;
+  const range = win && `${formatShort(win.from)} – ${formatShort(win.to)}`;
   // Bills that came due and nobody has confirmed paying yet. Shown first, and left out
   // of "Due this week" below so they don't appear twice.
   const toConfirm = needsConfirming(s.bills, s.payments, today);
   const key = (o: { bill: { id: string }; date: string }) => `${o.bill.id}|${o.date}`;
   const confirmKeys = new Set(toConfirm.map(key));
-  const restThisWeek = plan.dueThisWeek.filter((o) => !confirmKeys.has(key(o)));
+  const restThisWeek = top.dueThisWeek.filter((o) => !confirmKeys.has(key(o)));
   const led = ledger(s.bills, s.payments, s.contributions, sh);
-  const smoothed = plan.mode === 'smoothed';
   const pending = s.requests.filter((r) => r.status === 'pending');
 
   // ----- Who pays what -----
@@ -78,16 +83,24 @@ export function DashboardView() {
 
       <div className="card hero">
         <div className="hero-head">
-          <div className="eyebrow">This week · {formatShort(plan.weekStart)} – {formatShort(plan.weekEnd)}</div>
+          <div className="eyebrow">{win ? `Total due through ${formatShort(win.to)}` : <>This week · {formatShort(plan.weekStart)} – {formatShort(plan.weekEnd)}</>}</div>
           <span className="mode-tag">{smoothed ? 'Smoothed' : 'Pay as due'}</span>
         </div>
-        <div className="hero-total">{formatCents(plan.sharedTotalCents)}</div>
-        <div className="muted small">
-          {smoothed
-            ? `${formatCents(plan.regularCents)} weekly average${plan.oneTimeCents ? ` + ${formatCents(plan.oneTimeCents)} one-time bills` : ''}`
-            : 'Unpaid shared bills due this week, plus any overdue'}
-        </div>
-        <div className="people">
+        <div className="hero-total">{formatCents(top.sharedTotalCents)}</div>
+        {win ? (
+          <div className="split-rows">
+            <div><span>Overdue bills</span><span>{formatCents(top.overdueCents)}</span></div>
+            <div><span>Bills due {range}</span><span>{formatCents(top.sharedTotalCents - top.overdueCents)}</span></div>
+          </div>
+        ) : (
+          <div className="muted small">
+            {smoothed
+              ? `${formatCents(plan.regularCents)} weekly average${plan.oneTimeCents ? ` + ${formatCents(plan.oneTimeCents)} one-time bills` : ''}`
+              : 'Unpaid shared bills due this week, plus any overdue'}
+          </div>
+        )}
+        <div className={`people${win ? ' rows' : ''}`}>
+          {win && <div className="eyebrow">To deposit</div>}
           {plan.perMember.map((p) => {
             const isMe = p.member.user_id === s.userId;
             const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh, s.contributions);
@@ -101,32 +114,43 @@ export function DashboardView() {
                 return [wk === plan.weekStart ? 'This week' : `Week of ${formatShort(wk)}`, c] as const;
               }),
             ];
+            const covers = due.weeks === 0 ? (due.lastPayday ? `Covered by ${isMe ? 'your' : 'their'} ${formatShort(due.lastPayday)} pay` : 'Nothing due until payday')
+              : due.weeks === 1 && due.from === plan.weekStart ? 'This week'
+              : `Covers ${formatShort(due.from)} – ${formatShort(due.to)}`;
             return (
               <div className="person" key={p.member.user_id}>
-                <div className="person-top">
-                  <span className="person-name">{p.member.display_name}<You show={isMe} /></span>
-                  <span className="person-pct" title="Share of shared bills">{pct(p.ratio)}</span>
-                </div>
-                <div className="eyebrow">To deposit</div>
-                {/* The whole deposit: on a payday week it covers until the next payday (pay as due: starting next week). */}
-                <div className="person-amt">{formatCents(due.cents)}</div>
-                {due.weeks === 0 ? <div className="muted small">{due.lastPayday ? `Covered by your ${formatShort(due.lastPayday)} pay` : 'Nothing due until payday'}{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>
-                  : due.weeks === 1 && due.from === plan.weekStart ? <div className="muted small">This week</div>
-                  : <div className="muted small">Covers {formatShort(due.from)} – {formatShort(due.to)}</div>}
-                {rows.length > 1 && (
-                  <div className="split-rows">
-                    {rows.map(([label, c]) => <div key={label}><span>{label}</span><span>{formatCents(c)}</span></div>)}
+                {win ? (
+                  <div className="person-row">
+                    <div>
+                      <div className="person-name">{p.member.display_name}<You show={isMe} /><span className="muted"> · {pct(p.ratio)}</span></div>
+                      <div className="muted small">{covers}</div>
+                    </div>
+                    <div className={`person-amt${due.cents ? '' : ' muted'}`}>{formatCents(due.cents)}</div>
                   </div>
-                )}
+                ) : (<>
+                  <div className="person-top">
+                    <span className="person-name">{p.member.display_name}<You show={isMe} /></span>
+                    <span className="person-pct" title="Share of shared bills">{pct(p.ratio)}</span>
+                  </div>
+                  <div className="eyebrow">To deposit</div>
+                  {/* The whole deposit: on a payday week it covers until the next payday (pay as due: starting next week). */}
+                  <div className="person-amt">{formatCents(due.cents)}</div>
+                  <div className="muted small">{covers}{due.nextPayday && <><br />Next payday {formatShort(due.nextPayday)}</>}</div>
+                  {rows.length > 1 && (
+                    <div className="split-rows">
+                      {rows.map(([label, c]) => <div key={label}><span>{label}</span><span>{formatCents(c)}</span></div>)}
+                    </div>
+                  )}
+                </>)}
                 {due.shortCents > 0 && <div className="small danger-text">{formatCents(due.shortCents)} more than {isMe ? 'your' : 'their'} paycheck covers</div>}
-                {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
+                {!win && p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
                 {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
                 {due.weeks === 0 && done === 0 ? null
                   : done >= due.cents && done > 0 ? <span className="pill paid">✓ Deposited</span>
                   : isMe ? <button type="button" className="pill" onClick={() => setDeposit({ amount: due.cents - done, max: due.limitCents === null ? null : due.limitCents - done })}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
                   : <span className="badge person-status">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
-                {last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
+                {!win && last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
               </div>
             );
           })}
@@ -161,10 +185,10 @@ export function DashboardView() {
         </div>
       )}
 
-      <h2 className="section-title">Due this week</h2>
+      <h2 className="section-title">{win ? `Bills due ${range}` : 'Due this week'}</h2>
       {restThisWeek.length
         ? <ul className="list">{restThisWeek.map((o) => <OccurrenceRow key={key(o)} o={o} today={today} />)}</ul>
-        : <p className="empty">{toConfirm.length ? 'Nothing else' : 'Nothing'} due this week.</p>}
+        : <p className="empty">{toConfirm.length ? 'Nothing else' : 'Nothing'} due {win ? 'until payday' : 'this week'}.</p>}
 
       <a className="card balance" href="#/history">
         <div>

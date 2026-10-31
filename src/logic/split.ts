@@ -70,6 +70,7 @@ export function monthlySharedTotal(bills: Bill[]): number {
 }
 
 export interface WeekPlan {
+  /** The period's first and last day (a Sun–Sat week from weekPlan). */
   weekStart: ISODate;
   weekEnd: ISODate;
   mode: WeeklyMode;
@@ -77,20 +78,13 @@ export interface WeekPlan {
   regularCents: number; // smoothed: recurring bills averaged per week
   oneTimeCents: number; // smoothed: one-time shared bills due this week
   sharedTotalCents: number;
+  /** due: the part of sharedTotalCents from unpaid bills before the period; 0 when smoothed. */
+  overdueCents: number;
   perMember: { member: Member; ratio: number; sharedCents: number; personalCents: number }[];
   dueThisWeek: Occurrence[];
 }
 
-/**
- * What each partner owes for the week containing `date`.
- *
- * smoothed: (average monthly shared bills × 12 ÷ 52) every week, plus any one-time
- *           shared bills due this week, split by income.
- * due:      the unpaid shared bills due this week plus, when `overdue` is on, unpaid shared
- *           bills from before it (same rule as needsConfirming), split by income.
- *
- * Personal bills are never split; they're shown separately for their owner.
- */
+/** What each partner owes for the week containing `date`. See periodPlan. */
 export function weekPlan(
   date: ISODate,
   mode: WeeklyMode,
@@ -99,21 +93,44 @@ export function weekPlan(
   shares: Share[],
   overdue = true,
 ): WeekPlan {
-  const start = weekStart(date);
-  const end = addDays(start, 6);
+  const s = weekStart(date);
+  return periodPlan(s, addDays(s, 6), mode, bills, payments, shares, overdue);
+}
+
+/**
+ * What each partner owes for the days `start` through `end`.
+ *
+ * smoothed: (average monthly shared bills × 12 ÷ 52) every week, plus any one-time
+ *           shared bills due this week, split by income.
+ * due:      the unpaid shared bills due in the period plus, when `overdue` is on, unpaid shared
+ *           bills from before it (same rule as needsConfirming), split by income.
+ *
+ * Personal bills are never split; they're shown separately for their owner.
+ */
+export function periodPlan(
+  start: ISODate,
+  end: ISODate,
+  mode: WeeklyMode,
+  bills: Bill[],
+  payments: Payment[],
+  shares: Share[],
+  overdue = true,
+): WeekPlan {
   const due = occurrences(bills, payments, start, end);
   const sharedDue = due.filter((o) => o.bill.owner_id === null);
 
   let regular = 0;
   let oneTime = 0;
+  let overdueCents = 0;
   if (mode === 'smoothed') {
     regular = Math.round((monthlySharedTotal(bills) * 12) / 52);
     oneTime = sharedDue.filter((o) => o.bill.recurrence === 'once').reduce((s, o) => s + o.bill.amount_cents, 0);
   } else {
-    const late = overdue ? needsConfirming(bills, payments, addDays(start, -1)) : [];
-    regular = [...sharedDue, ...late]
+    const unpaid = (occ: Occurrence[]) => occ
       .filter((o) => o.bill.owner_id === null && !o.payment)
       .reduce((s, o) => s + o.bill.amount_cents, 0);
+    overdueCents = overdue ? unpaid(needsConfirming(bills, payments, addDays(start, -1))) : 0;
+    regular = unpaid(sharedDue) + overdueCents;
   }
   const total = regular + oneTime;
   const parts = splitByRatio(total, shares.map((s) => s.ratio));
@@ -125,6 +142,7 @@ export function weekPlan(
     regularCents: regular,
     oneTimeCents: oneTime,
     sharedTotalCents: total,
+    overdueCents,
     dueThisWeek: due,
     perMember: shares.map((s, i) => ({
       member: s.member,
@@ -135,6 +153,15 @@ export function weekPlan(
         .reduce((sum, o) => sum + o.bill.amount_cents, 0),
     })),
   };
+}
+
+/** The day after `member`'s last payday on or before `date`, through their next payday. */
+export function payWindow(member: Pick<Member, 'payday' | 'pay_frequency'>, date: ISODate): { from: ISODate; to: ISODate } | null {
+  const last = paydays(member, addDays(date, -62), date).at(-1);
+  if (!last) return null;
+  const from = addDays(last, 1);
+  const to = paydays(member, from, addDays(from, 62))[0];
+  return to ? { from, to } : null;
 }
 
 export interface DepositDue {
@@ -211,8 +238,7 @@ export function depositDue(
       occ.filter((o) => o.bill.owner_id === null && !o.payment).reduce((s, o) => s + o.bill.amount_cents, 0),
       shares.map((s) => s.ratio),
     )[i];
-    from = addDays(pay, 1);
-    to = paydays(member, from, addDays(pay, 62))[0] ?? addDays(pay, 7);
+    ({ from, to } = payWindow(member, pay) ?? { from: addDays(pay, 1), to: addDays(pay, 7) });
     overdueCents = mine(needsConfirming(bills, payments, pay));
     for (let d = from; d <= to; d = addDays(d, 7)) {
       weekCents.push(mine(occurrences(bills, payments, d, addDays(d, 6) < to ? addDays(d, 6) : to)));
