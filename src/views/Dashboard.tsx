@@ -22,7 +22,7 @@ export function DashboardView() {
   const top = win ? periodPlan(win.from, win.to, 'due', s.bills, s.payments, sh) : plan;
   const range = win && `${formatShort(win.from)} – ${formatShort(win.to)}`;
   // Bills that came due and nobody has confirmed paying yet. Shown first, and left out
-  // of "Due this week" below so they don't appear twice.
+  // of the bill list below so they don't appear twice.
   const toConfirm = needsConfirming(s.bills, s.payments, today);
   const key = (o: { bill: { id: string }; date: string }) => `${o.bill.id}|${o.date}`;
   const confirmKeys = new Set(toConfirm.map(key));
@@ -89,7 +89,7 @@ export function DashboardView() {
         <div className="hero-total">{formatCents(top.sharedTotalCents)}</div>
         {win ? (
           <div className="split-rows">
-            <div><span>Overdue bills</span><span>{formatCents(top.overdueCents)}</span></div>
+            {top.overdueCents > 0 && <div><span>Overdue bills</span><span>{formatCents(top.overdueCents)}</span></div>}
             <div><span>Bills due {range}</span><span>{formatCents(top.sharedTotalCents - top.overdueCents)}</span></div>
           </div>
         ) : (
