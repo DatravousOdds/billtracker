@@ -52,7 +52,7 @@ export function DashboardView() {
   // ----- Left after bills -----
   // Hidden until someone has income: the 50/50 fallback would show made-up negatives.
   const monthStart = today.slice(0, 8) + '01';
-  const weekLeft = weekLeftover(today, plan.mode, s.bills, s.payments, sh, s.contributions, s.paychecks);
+  const weekLeft = weekLeftover(today, plan.mode, s.bills, s.payments, sh, s.contributions, s.paychecks, s.accountBalances);
   const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month', s.paychecks, !smoothed);
   const monthName = toDate(monthStart).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
   const math = (l: Leftover, income = 'income', shared = 'shared') =>

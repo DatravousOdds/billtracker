@@ -468,6 +468,18 @@ describe('Left after bills in pay as due', () => {
     expect(weekLeftover(today, 'due', bills, firstPaid, sh, [made('t', today, 94957)])[0].leftCents).toBe(9643);
   });
 
+  it('week: matches the deposit after a typed account balance credits it', () => {
+    const balances = [{ id: 'b', household_id: 'h', member_id: 't', week_start: today, amount_cents: 150000, spare_cents: 100000, entered_at: '' }];
+    const [t] = weekLeftover(today, 'due', bills, payments, sh, [], [], balances);
+    expect(t.sharedCents).toBe(depositDue(tra, today, 'due', bills, payments, sh, [], balances).cents);
+    expect(t.leftCents).toBe(68440);
+  });
+
+  it('week: confirming a bill after payday does not move the number', () => {
+    const late = { ...paid('due-1', '2026-11-01', 36200), paid_on: '2026-11-03' };
+    expect(weekLeftover('2026-11-03', 'due', bills, [...payments, late], sh, [])[0].leftCents).toBe(9643);
+  });
+
   it('week: a week without a payday shows $0, since the payday before it counted its bills', () => {
     const own = [once('own', 4000, '2026-11-10', 'l')];
     expect(weekLeftover(today, 'due', own, [], sh, [])[1].personalCents).toBe(4000);

@@ -477,16 +477,17 @@ export function weekLeftover(
   shares: Share[],
   contributions: Contribution[],
   paychecks: Paycheck[] = [],
+  balances: AccountBalance[] = [],
 ): Leftover[] {
   const start = weekStart(date);
   const end = addDays(start, 6);
   if (mode === 'smoothed') return leftover(bills, payments, shares, start, end, 'week');
   return shares.map(({ member, income }) => {
-    const due = depositDue(member, date, mode, bills, payments, shares, contributions);
+    const due = depositDue(member, date, mode, bills, payments, shares, contributions, balances);
     const deposited = contributions
       .filter((c) => c.member_id === member.user_id && c.week_start === start)
       .reduce((sum, c) => sum + c.amount_cents, 0);
-    // Confirming a bill lowers what's asked, but a deposit already made has left the paycheck.
+    // A bill paid by payday lowers what's asked, but a deposit already made has left the paycheck.
     const sharedCents = Math.max(due.cents, deposited);
     const logged = paychecks.filter((p) => p.member_id === member.user_id && p.paid_on >= start && p.paid_on <= end);
     const incomeCents = due.weeks === 0 ? 0
