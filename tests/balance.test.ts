@@ -77,9 +77,9 @@ describe('the lock and the paid-after-payday rule', () => {
   });
   it('short adds, floor at 0', () => {
     const short = enter(alex, 25000, '2026-11-06', bills, [], sh, [samDep]);
-    expect(depositDue(alex, '2026-11-06', 'due', bills, [], sh, [samDep], [short])).toMatchObject({ creditCents: -2000, cents: 26000 });
+    expect(depositDue(alex, '2026-11-06', 'due', bills, [], sh, [samDep], [short])).toMatchObject({ creditCents: -2000, spareCents: -5000, cents: 26000 });
     const rich = enter(alex, 100000, '2026-11-06', bills, [], sh, [samDep]);
-    expect(depositDue(alex, '2026-11-06', 'due', bills, [], sh, [samDep], [rich])).toMatchObject({ creditCents: 24000, cents: 0, balanceCents: 100000 });
+    expect(depositDue(alex, '2026-11-06', 'due', bills, [], sh, [samDep], [rich])).toMatchObject({ creditCents: 24000, spareCents: 70000, cents: 0, balanceCents: 100000 });
   });
   it('new payday, schedule change, off-week: the entry stops counting', () => {
     expect(depositDue(alex, '2026-11-20', 'due', bills, [], sh, [samDep], [row])).toMatchObject({ balanceCents: null, creditCents: 0 });
