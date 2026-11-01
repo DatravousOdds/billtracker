@@ -3,7 +3,7 @@ import { addMonths, weekStart } from '../src/logic/dates';
 import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded, paydays } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
 import { dueDates, groupByCategory, sortByNextDue } from '../src/logic/recurrence';
-import { depositDue, incomeShares, ledger, leftover, needsConfirming, payWindow, periodPlan, weekPlan } from '../src/logic/split';
+import { depositDue, incomeShares, ledger, leftover, needsConfirming, newlyOverdue, payWindow, periodPlan, weekPlan } from '../src/logic/split';
 import type { Bill, Member, Paycheck } from '../src/types';
 
 const member = (id: string, pay: number, freq: Member['pay_frequency'], mode: Member['income_mode'] = 'fixed'): Member => ({
@@ -391,5 +391,35 @@ describe('split', () => {
   it('needs confirming: a bill added with a past due date is unpaid from that date', () => {
     const late = { ...bill('gas', 5000, 'monthly', '2026-09-10'), created_at: '2026-10-18T12:00:00Z' };
     expect(needsConfirming([late], [], '2026-10-18').map((o) => o.date)).toEqual(['2026-09-10', '2026-10-10']);
+  });
+});
+
+describe('newlyOverdue', () => {
+  const today = '2026-10-11';
+  const rent = bill('rent', 130000, 'monthly', '2026-01-01');
+  const paid = (due_date: string) => ({ id: due_date, household_id: 'h', bill_id: 'rent', due_date, paid_on: due_date, amount_cents: 130000, paid_by: null });
+  const once = (start: string) => bill('rent', 130000, 'once', start);
+
+  it('counts past dates a new due date leaves without a payment', () => {
+    const payments = [paid('2026-09-01'), paid('2026-10-01')];
+    expect(newlyOverdue(rent, { ...rent, start_date: '2026-01-05' }, payments, today)).toBe(2);
+  });
+
+  it('ignores a change that leaves the dates alone, even if they are already unpaid', () => {
+    expect(newlyOverdue(rent, { ...rent, amount_cents: 140000 }, [], today)).toBe(0);
+  });
+
+  it('counts turning autopay off and un-pausing, but not turning autopay on', () => {
+    expect(newlyOverdue({ ...rent, autopay: true }, rent, [], today)).toBe(2);
+    expect(newlyOverdue({ ...rent, active: false }, rent, [], today)).toBe(2);
+    expect(newlyOverdue(rent, { ...rent, autopay: true }, [], today)).toBe(0);
+  });
+
+  it('leaves out today and anything over 60 days back', () => {
+    const future = once('2026-12-01');
+    expect(newlyOverdue(future, once('2026-10-11'), [], today)).toBe(0);
+    expect(newlyOverdue(future, once('2026-10-10'), [], today)).toBe(1);
+    expect(newlyOverdue(future, once('2026-08-11'), [], today)).toBe(0);
+    expect(newlyOverdue(future, once('2026-08-12'), [], today)).toBe(1);
   });
 });

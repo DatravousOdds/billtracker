@@ -62,6 +62,13 @@ export function needsConfirming(bills: Bill[], payments: Payment[], today: ISODa
     .filter((o) => !o.payment && !o.bill.autopay);
 }
 
+/** Past dates (today excluded) that would newly show as overdue if `before` became `after`. */
+export function newlyOverdue(before: Bill, after: Bill, payments: Payment[], today: ISODate): number {
+  const past = (b: Bill) => needsConfirming([b], payments, today).filter((o) => o.date < today).map((o) => o.date);
+  const had = new Set(past(before));
+  return past(after).filter((d) => !had.has(d)).length;
+}
+
 /** Average shared bills per month (cents). Personal and paused bills are left out. */
 export function monthlySharedTotal(bills: Bill[]): number {
   return bills
