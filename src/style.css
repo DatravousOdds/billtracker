@@ -160,8 +160,13 @@ main { max-width: 640px; margin: 0 auto; }
 .how summary { cursor: pointer; padding: 10px 0; font-size: 0.85rem; font-weight: 600; color: var(--accent); }
 .how p { margin: 8px 0 0; }
 
-.card.balance { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-decoration: none; color: inherit; }
-.card.balance > span { font-size: 1.4rem; color: var(--muted); }
+.balance { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-decoration: none; color: inherit; }
+.balance > span { font-size: 1.4rem; color: var(--muted); }
+.account-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.875rem; color: var(--muted); }
+.card > .account-line { margin-top: 2px; }
+.card > .account-line:has(.link-btn) { margin-bottom: -12px; } /* the tap target may overhang the card's padding */
+.ledger ~ .account-line { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink); }
+.covered { color: var(--accent); font-size: 0.875rem; font-weight: 600; padding-bottom: 4px; }
 
 .card.member { display: grid; gap: 10px; }
 .card.member h2 { font-size: 1.15rem; }
@@ -217,6 +222,8 @@ button { font: inherit; }
 .btn.block { width: 100%; }
 a.btn { display: inline-block; text-decoration: none; }
 .btn[disabled], .pill[disabled] { opacity: 0.55; pointer-events: none; }
+.link-btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 2px 0 12px; border: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+.link-btn.block { width: 100%; padding: 8px 16px; font-size: 0.875rem; }
 .row-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 
 .pill {
@@ -236,6 +243,7 @@ a.btn { display: inline-block; text-decoration: none; }
 .seg { display: inline-flex; background: var(--surface-2); padding: 3px; border-radius: 11px; gap: 2px; }
 .seg.full { display: flex; }
 .seg.full > button { flex: 1; }
+.seg.full:has(> :nth-child(4)) > button { padding-inline: 4px; } /* four tabs have to fit a phone */
 .seg > button { appearance: none; border: 0; background: transparent; color: var(--muted); padding: 7px 12px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; }
 .seg > button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 
@@ -259,6 +267,7 @@ legend { font-size: 0.8rem; font-weight: 700; color: var(--muted); padding: 0 4p
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .inline { display: flex; gap: 8px; }
 .inline select { flex: 1; }
+.sheet-warn { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); font-size: 0.875rem; }
 .pay-form { border-top: 1px solid var(--line); padding-top: 12px; }
 .pay-form .btn { justify-self: start; }
 .code-input { text-transform: uppercase; letter-spacing: 0.2em; font-family: var(--num); }

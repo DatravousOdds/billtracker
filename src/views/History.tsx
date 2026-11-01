@@ -1,21 +1,25 @@
 import { useState } from 'react';
-import { formatShort } from '../logic/dates';
+import { formatShort, todayISO } from '../logic/dates';
 import { formatCents } from '../logic/money';
-import { ledger } from '../logic/split';
+import { balanceWeek, ledger } from '../logic/split';
 import { deleteContribution, memberName, shares } from '../store';
-import type { Payment } from '../types';
+import type { ISODate, Payment } from '../types';
 import { useAppState } from '../ui/hooks';
-import { AsyncButton, PaySheet, pct } from '../ui/parts';
+import { AsyncButton, BalanceSheet, BillAccountLine, PaySheet, You, pct } from '../ui/parts';
 import { toast } from '../ui/toast';
 
-type Tab = 'payments' | 'deposits' | 'activity';
+type Tab = 'payments' | 'deposits' | 'balances' | 'activity';
 let rememberedTab: Tab = 'payments'; // remembered while the app is open
 
 const when = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 export function HistoryView() {
   const s = useAppState();
-  const [tab, setTab] = useState(rememberedTab);
+  const [picked, setTab] = useState(rememberedTab);
+  const payAsDue = s.household.weekly_mode === 'due';
+  const tabs: Tab[] = payAsDue || s.accountBalances.length ? ['payments', 'deposits', 'balances', 'activity'] : ['payments', 'deposits', 'activity'];
+  const tab = tabs.includes(picked) ? picked : 'payments';
+  const [editingWeek, setEditingWeek] = useState<ISODate | null>(null);
   const [editing, setEditing] = useState<Payment | null>(null);
   const editingBill = editing && s.bills.find((b) => b.id === editing.bill_id);
   const sh = shares();
@@ -57,6 +61,34 @@ export function HistoryView() {
       ))}</ul>
     ) : <p className="empty">No deposits yet. Confirm yours from This week.</p>,
 
+    balances: () => s.accountBalances.length ? (
+      <ul className="list">{s.accountBalances.map((b) => {
+        const member = s.members.find((m) => m.user_id === b.member_id);
+        const isMe = b.member_id === s.userId;
+        const date = formatShort(todayISO(new Date(b.entered_at)));
+        const row = <>
+          <span className="occ-main">
+            <span className="occ-name">
+              <span>{memberName(b.member_id)}<You show={isMe} /></span>
+              {payAsDue && member && balanceWeek(member, todayISO()) === b.week_start && <span className="badge">In use</span>}
+            </span>
+            <span className="occ-sub">Entered {date}</span>
+          </span>
+          <span className="occ-amt">{formatCents(b.amount_cents)}</span>
+        </>;
+        return (
+          <li className="occ" key={b.id}>
+            {isMe ? (
+              <button type="button" className="occ-tap" aria-haspopup="dialog" aria-label={`Edit your ${date} balance, ${formatCents(b.amount_cents)}`} onClick={() => setEditingWeek(b.week_start)}>
+                {row}
+                <span className="chev" aria-hidden="true">›</span>
+              </button>
+            ) : row}
+          </li>
+        );
+      })}</ul>
+    ) : <p className="empty">No balances yet. Enter one from This week.</p>,
+
     activity: () => s.activity.length ? (
       <ul className="list feed">{s.activity.map((a) => (
         <li key={a.id}><div>{a.message}</div><div className="muted small">{when.format(new Date(a.created_at))}</div></li>
@@ -81,11 +113,12 @@ export function HistoryView() {
             </tr>
           ))}</tbody>
         </table>
-        <p className="muted small">"Put in" = bill-account deposits + shared bills paid directly. Fair share uses today's split. Bill account holds {formatCents(led.accountCents)}.</p>
+        <p className="muted small">"Put in" = bill-account deposits + shared bills paid directly. Fair share uses today's split.{!payAsDue && ` Bill account holds ${formatCents(led.accountCents)}.`}</p>
+        {payAsDue && <BillAccountLine enterHref="#/" />}
       </div>
 
       <div className="seg full" role="tablist">
-        {(['payments', 'deposits', 'activity'] as Tab[]).map((t) => (
+        {tabs.map((t) => (
           <button key={t} type="button" role="tab" className={tab === t ? 'on' : ''} onClick={() => setTab(rememberedTab = t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -94,6 +127,7 @@ export function HistoryView() {
       <div className="tab-body">{body[tab]()}</div>
 
       {editing && editingBill && <PaySheet bill={editingBill} dueDate={editing.due_date} payment={editing} onClose={() => setEditing(null)} />}
+      {editingWeek && <BalanceSheet week={editingWeek} onClose={() => setEditingWeek(null)} />}
     </section>
   );
 }

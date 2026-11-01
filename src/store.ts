@@ -1,10 +1,10 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type {
-  ActivityEntry, Bill, BillRequest, Contribution, Household, Member, Payment, Paycheck,
+  AccountBalance, ActivityEntry, Bill, BillRequest, Contribution, Household, ISODate, Member, Payment, Paycheck,
 } from './types';
 import { formatShort, todayISO } from './logic/dates';
-import { incomeShares, type Share } from './logic/split';
+import { balanceEntry, depositDue, incomeShares, type DepositDue, type Share } from './logic/split';
 import { formatCents } from './logic/money';
 import { demoLog, demoState, isDemo, newId } from './demo';
 
@@ -15,6 +15,7 @@ export interface State {
   bills: Bill[];
   payments: Payment[];
   contributions: Contribution[];
+  accountBalances: AccountBalance[];
   paychecks: Paycheck[];
   requests: BillRequest[];
   activity: ActivityEntry[];
@@ -58,12 +59,13 @@ export async function findMyHousehold(userId: string): Promise<string | null> {
 
 /** Load everything for the household. Filtered explicitly: RLS lets admins read every household. */
 export async function load(userId: string, householdId: string): Promise<void> {
-  const [household, members, bills, payments, contributions, paychecks, requests, activity] = await Promise.all([
+  const [household, members, bills, payments, contributions, accountBalances, paychecks, requests, activity] = await Promise.all([
     supabase.from('households').select('*').eq('id', householdId).single(),
     supabase.from('members').select('*').eq('household_id', householdId).order('created_at'),
     supabase.from('bills').select('*').eq('household_id', householdId).order('name'),
     supabase.from('payments').select('*').eq('household_id', householdId),
     supabase.from('contributions').select('*').eq('household_id', householdId).order('week_start', { ascending: false }).order('created_at', { ascending: false }),
+    supabase.from('account_balances').select('*').eq('household_id', householdId).order('entered_at', { ascending: false }),
     supabase.from('paychecks').select('*').eq('household_id', householdId).order('paid_on', { ascending: false }),
     supabase.from('bill_requests').select('*').eq('household_id', householdId).order('created_at', { ascending: false }),
     supabase.from('activity_log').select('id, actor, message, created_at').eq('household_id', householdId).order('created_at', { ascending: false }).limit(200),
@@ -75,6 +77,7 @@ export async function load(userId: string, householdId: string): Promise<void> {
     bills: check(bills) as Bill[],
     payments: check(payments) as Payment[],
     contributions: check(contributions) as Contribution[],
+    accountBalances: check(accountBalances) as AccountBalance[],
     paychecks: check(paychecks) as Paycheck[],
     requests: check(requests) as BillRequest[],
     activity: check(activity) as ActivityEntry[],
@@ -97,7 +100,7 @@ function startRealtime(userId: string, householdId: string) {
     }, 250);
   };
   channel = supabase.channel(`household-${householdId}`);
-  const tables = ['members', 'bills', 'payments', 'contributions', 'paychecks', 'bill_requests', 'activity_log'];
+  const tables = ['members', 'bills', 'payments', 'contributions', 'account_balances', 'paychecks', 'bill_requests', 'activity_log'];
   for (const table of tables) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `household_id=eq.${householdId}` }, refresh);
   }
@@ -275,6 +278,32 @@ export async function deleteContribution(id: string) {
   }
   check(await supabase.from('contributions').delete().eq('id', id));
   await reload();
+}
+
+/** Save the balance the signed-in partner typed: the one in use, or `week`'s. Returns their deposit with it applied. */
+export async function saveBalance(cents: number, week?: ISODate): Promise<DepositDue> {
+  // The spare money is frozen from this state, so a phone that missed a partner's deposit would keep a wrong credit all period.
+  if (!isDemo) await reload();
+  const s = getState();
+  const memberId = s.userId;
+  const today = todayISO();
+  const member = s.members.find((m) => m.user_id === memberId)!;
+  const entry = balanceEntry(member, cents, today, s.bills, s.payments, shares(), s.contributions, s.accountBalances, week);
+  if (isDemo) {
+    const old = s.accountBalances.find((b) => b.member_id === memberId && b.week_start === entry.week_start);
+    const was = old?.amount_cents;
+    local((s) => {
+      if (old) Object.assign(old, entry);
+      else s.accountBalances.unshift({ ...entry, id: newId(), household_id: s.household.id, member_id: memberId, entered_at: new Date().toISOString() });
+    }, was === cents ? undefined : (s) => (was === undefined
+      ? `${me(s)} entered the bill account balance: ${formatCents(cents)}`
+      : `${me(s)} changed the bill account balance: ${formatCents(was)} → ${formatCents(cents)}`));
+  } else {
+    check(await supabase.from('account_balances').upsert({ household_id: s.household.id, member_id: memberId, ...entry }, { onConflict: 'member_id,week_start' }));
+    await reload();
+  }
+  const now = getState();
+  return depositDue(now.members.find((m) => m.user_id === memberId) ?? member, today, now.household.weekly_mode, now.bills, now.payments, shares(), now.contributions, now.accountBalances);
 }
 
 export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode' | 'paycheck_average' | 'payday'>>) {
