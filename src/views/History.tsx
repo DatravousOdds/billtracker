@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { formatShort } from '../logic/dates';
 import { formatCents } from '../logic/money';
 import { ledger } from '../logic/split';
-import { deleteContribution, memberName, shares, unmarkPaid } from '../store';
+import { deleteContribution, memberName, shares } from '../store';
+import type { Payment } from '../types';
 import { useAppState } from '../ui/hooks';
-import { AsyncButton, pct } from '../ui/parts';
+import { AsyncButton, PaySheet, pct } from '../ui/parts';
 import { toast } from '../ui/toast';
 
 type Tab = 'payments' | 'deposits' | 'activity';
@@ -15,6 +16,8 @@ const when = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', 
 export function HistoryView() {
   const s = useAppState();
   const [tab, setTab] = useState(rememberedTab);
+  const [editing, setEditing] = useState<Payment | null>(null);
+  const editingBill = editing && s.bills.find((b) => b.id === editing.bill_id);
   const sh = shares();
   const led = ledger(s.bills, s.payments, s.contributions, sh);
   const billName = (id: string) => s.bills.find((b) => b.id === id)?.name ?? 'Deleted bill';
@@ -24,15 +27,14 @@ export function HistoryView() {
     payments: () => payments.length ? (
       <ul className="list">{payments.map((p) => (
         <li className="occ" key={p.id}>
-          <div className="occ-main">
-            <div className="occ-name">{billName(p.bill_id)}</div>
-            <div className="occ-sub">Paid {formatShort(p.paid_on)} by {memberName(p.paid_by)} · due {formatShort(p.due_date)}</div>
-          </div>
-          <div className="occ-amt">{formatCents(p.amount_cents)}</div>
-          <AsyncButton className="icon-btn" aria-label="Undo payment" onClick={async () => {
-            await unmarkPaid(p.id);
-            toast('Payment removed');
-          }}>↺</AsyncButton>
+          <button type="button" className="occ-tap" aria-haspopup="dialog" onClick={() => setEditing(p)}>
+            <span className="occ-main">
+              <span className="occ-name">{billName(p.bill_id)}</span>
+              <span className="occ-sub">Paid <span className="nowrap">{formatShort(p.paid_on)}</span> by {memberName(p.paid_by)} <span className="nowrap">· due {formatShort(p.due_date)}</span></span>
+            </span>
+            <span className="occ-amt">{formatCents(p.amount_cents)}</span>
+            <span className="chev" aria-hidden="true">›</span>
+          </button>
         </li>
       ))}</ul>
     ) : <p className="empty">No payments yet.</p>,
@@ -90,6 +92,8 @@ export function HistoryView() {
         ))}
       </div>
       <div className="tab-body">{body[tab]()}</div>
+
+      {editing && editingBill && <PaySheet bill={editingBill} dueDate={editing.due_date} payment={editing} onClose={() => setEditing(null)} />}
     </section>
   );
 }

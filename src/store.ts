@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 import type {
   ActivityEntry, Bill, BillRequest, Contribution, Household, Member, Payment, Paycheck,
 } from './types';
-import { todayISO } from './logic/dates';
+import { formatShort, todayISO } from './logic/dates';
 import { incomeShares, type Share } from './logic/split';
 import { formatCents } from './logic/money';
 import { demoLog, demoState, isDemo, newId } from './demo';
@@ -89,7 +89,12 @@ function startRealtime(userId: string, householdId: string) {
   let timer: number | undefined;
   const refresh = () => {
     window.clearTimeout(timer);
-    timer = window.setTimeout(() => load(userId, householdId).catch(console.error), 250);
+    timer = window.setTimeout(() => {
+      if (!channel) return;
+      // shortcut: partner updates wait until the open form closes so a reload can't unmount its row. Upgrade if a form ever needs live data.
+      if (document.querySelector('dialog[open]')) refresh();
+      else load(userId, householdId).catch(console.error);
+    }, 250);
   };
   channel = supabase.channel(`household-${householdId}`);
   const tables = ['members', 'bills', 'payments', 'contributions', 'paychecks', 'bill_requests', 'activity_log'];
@@ -180,8 +185,10 @@ export async function saveBill(id: string | null, input: BillInput) {
     return local((s) => s.bills.push({ ...input, id: newId(), household_id: s.household.id, owner_id: null, created_at: new Date().toISOString() }),
       (s) => `${me(s)} added ${input.name} (${formatCents(input.amount_cents)}, ${input.recurrence})`);
   }
-  if (id) check(await supabase.from('bills').update(input).eq('id', id));
-  else check(await supabase.from('bills').insert({ ...input, household_id: s.household.id }));
+  if (id) {
+    const rows = check(await supabase.from('bills').update(input).eq('id', id).select('id'));
+    if (!rows.length) throw new Error('That bill was removed');
+  } else check(await supabase.from('bills').insert({ ...input, household_id: s.household.id }));
   await reload();
 }
 
@@ -206,10 +213,32 @@ export async function markPaid(bill: Bill, dueDate: string, amountCents: number,
       amount_cents: amountCents, paid_by: paidBy, paid_on: paidOn,
     }), (s) => `${me(s)} marked ${bill.name} (due ${dueDate}) paid: ${formatCents(amountCents)} by ${memberName(paidBy)}`);
   }
-  check(await supabase.from('payments').insert({
+  const res = await supabase.from('payments').insert({
     household_id: s.household.id, bill_id: bill.id, due_date: dueDate,
     amount_cents: amountCents, paid_by: paidBy, paid_on: paidOn,
-  }));
+  });
+  if (res.error?.code === '23505') throw new Error('This date was already confirmed paid');
+  check(res);
+  await reload();
+}
+
+export type PaymentEdit = Pick<Payment, 'amount_cents' | 'paid_on' | 'paid_by'>;
+
+export async function updatePayment(id: string, edit: PaymentEdit) {
+  if (isDemo) {
+    const s = getState();
+    const old = s.payments.find((p) => p.id === id);
+    if (!old) throw new Error('That payment was removed');
+    const billName = s.bills.find((b) => b.id === old.bill_id)?.name;
+    const changes: string[] = [];
+    if (edit.amount_cents !== old.amount_cents) changes.push(`${formatCents(old.amount_cents)} → ${formatCents(edit.amount_cents)}`);
+    if (edit.paid_on !== old.paid_on) changes.push(`paid on ${formatShort(old.paid_on)} → ${formatShort(edit.paid_on)}`);
+    if (edit.paid_by !== old.paid_by) changes.push(`paid from ${memberName(old.paid_by)} → ${memberName(edit.paid_by)}`);
+    return local(() => Object.assign(old, edit),
+      changes.length ? (s) => `${me(s)} edited ${billName} (due ${formatShort(old.due_date)}): ${changes.join(', ')}` : undefined);
+  }
+  const rows = check(await supabase.from('payments').update(edit).eq('id', id).select('id'));
+  if (!rows.length) throw new Error('That payment was removed');
   await reload();
 }
 
