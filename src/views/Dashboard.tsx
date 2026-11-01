@@ -173,7 +173,7 @@ export function DashboardView() {
           </div>
           <details className="how">
             <summary>How it's worked out</summary>
-            <p className="muted small">{smoothed ? 'Income minus the bills due in each period, paid or not.' : `This week is your pay minus your deposit, which includes your share of overdue bills, and your personal bills. ${monthName} is income minus the bills due that month, paid or not, and any unpaid bills from before it.`} If you log each paycheck, {monthName} income is the checks dated in {monthName}.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</p>
+            <p className="muted small">{smoothed ? 'Income minus the bills due in each period, paid or not.' : `This week: your pay, minus your deposit (it includes your share of overdue bills), minus your personal bills. It's $0 in a week with no payday. ${monthName}: income minus the bills due that month, paid or not, and any unpaid bills from before it.`} If you log each paycheck, {monthName} income is the checks dated in {monthName}.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</p>
             {weekLeft.map((w, i) => (
               <p className="muted small" key={w.member.user_id}>
                 <strong>{w.member.display_name}</strong><br />

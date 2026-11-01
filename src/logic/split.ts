@@ -370,8 +370,8 @@ export function ledger(
  * What each partner has left of this week's pay.
  * Pay as due: their pay minus their deposit, minus their personal bills due in the days that
  * deposit covers and any still unpaid from before them. Pay is the check logged in a payday week
- * or else an average paycheck, an average week without a saved payday, and nothing in a week
- * without a payday, when no deposit is asked either.
+ * or else an average paycheck, or an average week without a saved payday. A week without a payday
+ * shows $0: no pay, no deposit, and the payday before it already counted its personal bills.
  * Smoothed: see leftover.
  */
 export function weekLeftover(
@@ -398,7 +398,7 @@ export function weekLeftover(
       : !paydays(member, start, end).length ? Math.round((income.monthlyCents * 12) / 52)
       : member.income_mode !== 'fixed' && logged.length ? logged.reduce((sum, p) => sum + p.amount_cents, 0)
       : Math.round((income.monthlyCents * 12) / PER_YEAR[member.pay_frequency]);
-    const personalCents = [...occurrences(bills, payments, due.from, due.to), ...needsConfirming(bills, payments, addDays(due.from, -1))]
+    const personalCents = due.weeks === 0 ? 0 : [...occurrences(bills, payments, due.from, due.to), ...needsConfirming(bills, payments, addDays(due.from, -1))]
       .filter((o) => o.bill.owner_id === member.user_id)
       .reduce((sum, o) => sum + cost(o), 0);
     return { member, incomeCents, sharedCents, personalCents, leftCents: incomeCents - sharedCents - personalCents };

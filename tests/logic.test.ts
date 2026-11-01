@@ -467,9 +467,11 @@ describe('Left after bills in pay as due', () => {
     expect(weekLeftover(today, 'due', bills, firstPaid, sh, [made('t', today, 94957)])[0].leftCents).toBe(9643);
   });
 
-  it('week: no pay and no deposit in a week without a payday', () => {
-    const [, l] = weekLeftover('2026-11-08', 'due', [once('own', 4000, '2026-11-10', 'l')], [], sh, []);
-    expect(l).toMatchObject({ incomeCents: 0, sharedCents: 0, personalCents: 4000, leftCents: -4000 });
+  it('week: a week without a payday shows $0, since the payday before it counted its bills', () => {
+    const own = [once('own', 4000, '2026-11-10', 'l')];
+    expect(weekLeftover(today, 'due', own, [], sh, [])[1].personalCents).toBe(4000);
+    const [, l] = weekLeftover('2026-11-08', 'due', own, [], sh, []);
+    expect(l).toMatchObject({ incomeCents: 0, sharedCents: 0, personalCents: 0, leftCents: 0 });
   });
 
   it('week: personal bills cover the deposit window plus unpaid overdue ones', () => {
