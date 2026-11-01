@@ -3,15 +3,16 @@ import { addDays, addMonths, formatShort, todayISO, toDate } from '../logic/date
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
 import { depositDue, ledger, leftover, needsConfirming, payWindow, periodPlan, weekPlan, type Leftover } from '../logic/split';
 import { addContribution, decideRequest, memberName, shares } from '../store';
-import type { BillRequest } from '../types';
+import type { BillRequest, Member } from '../types';
 import { useAppState, useBusy } from '../ui/hooks';
-import { AsyncButton, OccurrenceRow, You, pct } from '../ui/parts';
+import { AsyncButton, BalanceSheet, BillAccountLine, OccurrenceRow, You, pct } from '../ui/parts';
 import { Sheet } from '../ui/Sheet';
 import { toast } from '../ui/toast';
 
 export function DashboardView() {
   const s = useAppState();
-  const [deposit, setDeposit] = useState<{ amount: number; max: number | null } | null>(null);
+  const [deposit, setDeposit] = useState<{ amount: number; max: number | null; note?: string } | null>(null);
+  const [enteringBalance, setEnteringBalance] = useState(false);
   const today = todayISO();
   const sh = shares();
   const plan = weekPlan(today, s.household.weekly_mode, s.bills, s.payments, sh);
@@ -35,6 +36,15 @@ export function DashboardView() {
     .filter((c) => c.member_id === memberId && c.week_start === plan.weekStart)
     .reduce((sum, c) => sum + c.amount_cents, 0);
 
+  const enterBalance = () => setEnteringBalance(true);
+  const dueOf = (m: Member) => depositDue(m, today, plan.mode, s.bills, s.payments, sh, s.contributions, s.accountBalances);
+  const myDue = me ? dueOf(me) : null;
+  // My card already has an "Enter shared account balance" button, so the running balance card doesn't need one.
+  const cardAsks = !!myDue && myDue.weeks > 0 && myDue.balanceCents === null && (myDue.cents > 0 || deposited(s.userId) > 0);
+  // Pay as due lists you first.
+  const perMember = smoothed ? plan.perMember
+    : [...plan.perMember].sort((a, b) => Number(b.member.user_id === s.userId) - Number(a.member.user_id === s.userId));
+
   const noIncome = sh.every((x) => x.income.monthlyCents === 0);
   const splitBy = s.household.split_proposed_by;
   const onlyOne = s.members.length < 2;
@@ -50,6 +60,14 @@ export function DashboardView() {
 
   // ----- Balance -----
   const ahead = led.balances.find((b) => b.balanceCents > 0);
+  const running = <>
+    <div className="eyebrow">Running balance</div>
+    <div>
+      {ahead && s.members.length === 2
+        ? <>{ahead.member.display_name} has covered <strong>{formatCents(ahead.balanceCents)}</strong> more than their share</>
+        : "You're both even"}
+    </div>
+  </>;
 
   return (
     <section className="view">
@@ -87,23 +105,24 @@ export function DashboardView() {
           <span className="mode-tag">{smoothed ? 'Smoothed' : 'Pay as due'}</span>
         </div>
         <div className="hero-total">{formatCents(top.sharedTotalCents)}</div>
-        {win ? (
+        {win && top.overdueCents > 0 ? (
           <div className="split-rows">
-            {top.overdueCents > 0 && <div><span>Overdue bills</span><span>{formatCents(top.overdueCents)}</span></div>}
+            <div><span>Overdue bills</span><span>{formatCents(top.overdueCents)}</span></div>
             <div><span>Bills due {range}</span><span>{formatCents(top.sharedTotalCents - top.overdueCents)}</span></div>
           </div>
         ) : (
           <div className="muted small">
             {smoothed
               ? `${formatCents(plan.regularCents)} weekly average${plan.oneTimeCents ? ` + ${formatCents(plan.oneTimeCents)} one-time bills` : ''}`
-              : 'Unpaid shared bills due this week, plus any overdue'}
+              : win ? `Bills due ${range}` : 'Left to pay this week, including overdue'}
           </div>
         )}
-        <div className={`people${win ? ' rows' : ''}`}>
-          {win && <div className="eyebrow">To deposit</div>}
-          {plan.perMember.map((p) => {
+        <div className={`people${smoothed ? '' : ' rows'}`}>
+          {!smoothed && <div className="eyebrow">To deposit</div>}
+          {perMember.map((p) => {
             const isMe = p.member.user_id === s.userId;
-            const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh, s.contributions);
+            const mine = isMe && !smoothed;
+            const due = dueOf(p.member);
             const done = deposited(p.member.user_id);
             // contributions are sorted newest first, so the first match is the partner's latest.
             const last = !isMe ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
@@ -115,11 +134,12 @@ export function DashboardView() {
               }),
             ];
             const covers = due.weeks === 0 ? (due.lastPayday ? `Covered by ${isMe ? 'your' : 'their'} ${formatShort(due.lastPayday)} pay` : 'Nothing due until payday')
-              : due.weeks === 1 && due.from === plan.weekStart ? 'This week'
+              : due.weeks === 1 && due.from === plan.weekStart ? (!smoothed && !due.cents && !due.creditCents ? 'Nothing due this week' : 'This week')
               : `Covers ${formatShort(due.from)} – ${formatShort(due.to)}`;
+            const confirmDeposit = () => setDeposit({ amount: due.cents - done, max: due.limitCents === null ? null : due.limitCents - done, note: smoothed ? undefined : covers });
             return (
               <div className="person" key={p.member.user_id}>
-                {win ? (
+                {!smoothed ? (
                   <div className="person-row">
                     <div>
                       <div className="person-name">{p.member.display_name}<You show={isMe} /><span className="muted"> · {pct(p.ratio)}</span></div>
@@ -142,13 +162,44 @@ export function DashboardView() {
                     </div>
                   )}
                 </>)}
+                {mine && due.creditCents !== 0 && (
+                  <div className="split-rows">
+                    <div><span>Your share of bills</span><span>{formatCents(due.overdueCents + due.weekCents.reduce((sum, c) => sum + c, 0))}</span></div>
+                    {due.creditCents > 0
+                      ? <div><span>{formatCents(due.spareCents)} extra in the account</span><span>−{formatCents(due.creditCents)}</span></div>
+                      : <div><span>Account is {formatCents(-due.spareCents)} short</span><span>+{formatCents(-due.creditCents)}</span></div>}
+                    <div>
+                      {due.creditCents < 0 ? `Your ${pct(p.ratio)} is added so the bills still get paid.`
+                        : due.cents === 0 && done === 0 ? `Your ${pct(p.ratio)} of the extra covers this whole deposit.`
+                        : `Your ${pct(p.ratio)} of the extra comes off your deposit.`}
+                    </div>
+                  </div>
+                )}
                 {due.shortCents > 0 && <div className="small danger-text">{formatCents(due.shortCents)} more than {isMe ? 'your' : 'their'} paycheck covers</div>}
                 {!win && p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
+                {mine && due.weeks > 0 && due.balanceCents !== null && (
+                  <div className="account-line">
+                    <span>Account balance: {formatCents(due.balanceCents)}</span>
+                    <button type="button" className="link-btn" aria-haspopup="dialog" onClick={enterBalance}>Edit</button>
+                  </div>
+                )}
                 {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
-                {due.weeks === 0 && done === 0 ? null
+                {mine ? (due.weeks === 0 ? null
+                  : due.cents === 0 && done === 0 ? due.creditCents > 0 && <div className="covered">Covered by what's in the account</div>
+                  : done >= due.cents ? <>
+                      <span className="pill paid">✓ Deposited</span>
+                      {due.balanceCents === null && <button type="button" className="link-btn block" aria-haspopup="dialog" onClick={enterBalance}>Enter shared account balance</button>}
+                    </>
+                  : due.balanceCents === null ? <>
+                      <div className="muted small">Enter what's in the shared account to see your exact deposit.</div>
+                      <button type="button" className="btn primary block" aria-haspopup="dialog" onClick={enterBalance}>Enter shared account balance</button>
+                      <button type="button" className="link-btn block" aria-haspopup="dialog" onClick={confirmDeposit}>Skip this and confirm my deposit</button>
+                    </>
+                  : <button type="button" className="btn primary block" aria-haspopup="dialog" onClick={confirmDeposit}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>)
+                  : (due.weeks === 0 || (!smoothed && due.cents === 0)) && done === 0 ? null
                   : done >= due.cents && done > 0 ? <span className="pill paid">✓ Deposited</span>
-                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit({ amount: due.cents - done, max: due.limitCents === null ? null : due.limitCents - done })}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
+                  : isMe ? <button type="button" className="pill" onClick={confirmDeposit}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
                   : <span className="badge person-status">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
                 {!win && last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
               </div>
@@ -191,20 +242,26 @@ export function DashboardView() {
         ? <ul className="list">{restThisWeek.map((o) => <OccurrenceRow key={key(o)} o={o} today={today} />)}</ul>
         : <p className="empty">{toConfirm.length ? 'Nothing else' : 'Nothing'} due {win ? 'until payday' : 'this week'}.</p>}
 
-      <a className="card balance" href="#/history">
-        <div>
-          <div className="eyebrow">Running balance</div>
+      {smoothed ? (
+        <a className="card balance" href="#/history">
           <div>
-            {ahead && s.members.length === 2
-              ? <>{ahead.member.display_name} has covered <strong>{formatCents(ahead.balanceCents)}</strong> more than their share</>
-              : "You're both even"}
+            {running}
+            <div className="muted small">Bill account: {formatCents(led.accountCents)} (deposits minus bills paid from it)</div>
           </div>
-          <div className="muted small">Bill account: {formatCents(led.accountCents)} (deposits minus bills paid from it)</div>
+          <span aria-hidden="true">›</span>
+        </a>
+      ) : (
+        <div className="card">
+          <a className="balance" href="#/history">
+            <div>{running}</div>
+            <span aria-hidden="true">›</span>
+          </a>
+          <BillAccountLine onEnter={cardAsks ? undefined : enterBalance} />
         </div>
-        <span aria-hidden="true">›</span>
-      </a>
+      )}
 
-      {deposit !== null && <DepositSheet amountCents={deposit.amount} maxCents={deposit.max} weekStart={plan.weekStart} onClose={() => setDeposit(null)} />}
+      {deposit !== null && <DepositSheet amountCents={deposit.amount} maxCents={deposit.max} weekStart={plan.weekStart} note={deposit.note} onClose={() => setDeposit(null)} />}
+      {enteringBalance && <BalanceSheet onClose={() => setEnteringBalance(false)} />}
     </section>
   );
 }
@@ -238,7 +295,7 @@ function RequestCard({ r }: { r: BillRequest }) {
   );
 }
 
-function DepositSheet({ amountCents, maxCents, weekStart, onClose }: { amountCents: number; maxCents: number | null; weekStart: string; onClose: () => void }) {
+function DepositSheet({ amountCents, maxCents, weekStart, note, onClose }: { amountCents: number; maxCents: number | null; weekStart: string; note?: string; onClose: () => void }) {
   const [busy, run] = useBusy();
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -256,7 +313,7 @@ function DepositSheet({ amountCents, maxCents, weekStart, onClose }: { amountCen
   return (
     <Sheet title="Confirm your deposit" onClose={onClose}>
       <form className="sheet-body form" onSubmit={submit}>
-        <p className="muted">Your deposit · week of {formatShort(weekStart)}</p>
+        <p className="muted">{note ?? `Your deposit · week of ${formatShort(weekStart)}`}</p>
         <label>Amount you deposited
           <input name="amount" inputMode="decimal" required defaultValue={centsToInput(Math.max(amountCents, 0))} />
         </label>
