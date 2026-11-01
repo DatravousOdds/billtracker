@@ -86,7 +86,7 @@ export function demoState(): State {
     userId: ALEX,
     household: { id: H, name: 'Alex & Sam', invite_code: 'K7Q2MX', weekly_mode: 'smoothed',
       split_member: null, split_percent: null, split_proposed_by: null, split_proposed_percent: null },
-    members, bills, payments, contributions, paychecks, requests, activity,
+    members, bills, payments, contributions, accountBalances: [], paychecks, requests, activity,
   };
 }
 

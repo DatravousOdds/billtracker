@@ -1,13 +1,13 @@
 // Shared UI pieces used by several screens.
-import { useRef, useState, type ButtonHTMLAttributes, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent } from 'react';
 import { addDays, formatLong, formatShort, todayISO } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
 import { dueDates, RECURRENCE_LABEL } from '../logic/recurrence';
-import { newlyOverdue, type Occurrence } from '../logic/split';
+import { balanceWeek, needsConfirming, newlyOverdue, type Occurrence } from '../logic/split';
 import {
-  deleteBill, getState, markPaid, memberName, requestOwnership, saveBill, unmarkPaid, updatePayment, type BillInput,
+  deleteBill, getState, markPaid, memberName, requestOwnership, saveBalance, saveBill, unmarkPaid, updatePayment, type BillInput,
 } from '../store';
-import type { Bill, Payment, Recurrence } from '../types';
+import type { Bill, ISODate, Payment, Recurrence } from '../types';
 import { useBusy } from './hooks';
 import { confirmSheet, Sheet } from './Sheet';
 import { toast } from './toast';
@@ -241,6 +241,64 @@ export function BillSheet({ bill, onClose }: { bill: Bill | null; onClose: () =>
         {bill && <AsyncButton className="btn danger-ghost block" onClick={remove}>Delete bill</AsyncButton>}
       </form>
     </Sheet>
+  );
+}
+
+/** Type what the bank shows, for the balance in use or, from History, for `week`. */
+export function BalanceSheet({ week, onClose }: { week?: ISODate; onClose: () => void }) {
+  const s = getState();
+  const [busy, run] = useBusy();
+  const input = useRef<HTMLInputElement>(null);
+  // autoFocus does nothing here: the dialog only opens in Sheet's effect, which runs before this one.
+  useEffect(() => input.current?.focus(), []);
+  const today = todayISO();
+  const inUse = balanceWeek(s.members.find((m) => m.user_id === s.userId)!, today);
+  const current = s.household.weekly_mode === 'due' && (week ?? inUse) === inUse;
+  const row = s.accountBalances.find((b) => b.member_id === s.userId && b.week_start === (week ?? inUse));
+
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const cents = parseDollars(String(new FormData(e.currentTarget).get('amount')));
+    if (cents === null) return toast('Enter an amount like 350.00', 'error');
+    run(async () => {
+      const after = await saveBalance(cents, week);
+      onClose();
+      toast(current && after.weeks > 0 ? `Balance saved. Your deposit is now ${formatCents(after.cents)}` : 'Balance saved');
+    });
+  };
+
+  return (
+    <Sheet title={week ? 'Edit balance' : "What's in the bill account?"} onClose={onClose}>
+      <form className="sheet-body form" onSubmit={submit}>
+        <p className="muted">
+          {!week ? "Type what your bank shows right now, before you deposit. We'll use it to work out your deposit."
+            : current ? 'This balance is in use. Changing it updates your deposit.'
+            : "This only corrects the record. Past deposits won't change."}
+        </p>
+        {current && needsConfirming(s.bills, s.payments, today).some((o) => o.bill.owner_id === null) && (
+          <p className="sheet-warn">Confirm anything already paid first, or this will look short.</p>
+        )}
+        <label>{week && row ? `Balance on ${formatShort(todayISO(new Date(row.entered_at)))}` : 'Account balance'}
+          <input ref={input} name="amount" inputMode="decimal" required defaultValue={row ? centsToInput(row.amount_cents) : ''} />
+        </label>
+        <button className="btn primary block" type="submit" disabled={busy}>Save balance</button>
+      </form>
+    </Sheet>
+  );
+}
+
+/** The latest balance either partner typed. Enter it from `onEnter` or `enterHref` when nobody has. */
+export function BillAccountLine({ onEnter, enterHref }: { onEnter?: () => void; enterHref?: string }) {
+  const latest = getState().accountBalances[0];
+  if (latest) {
+    return <div className="account-line">Bill account: {formatCents(latest.amount_cents)} · entered {formatShort(todayISO(new Date(latest.entered_at)))} by {memberName(latest.member_id)}</div>;
+  }
+  return (
+    <div className="account-line">
+      <span>Bill account: Not entered yet</span>
+      {onEnter && <button type="button" className="link-btn" aria-haspopup="dialog" onClick={onEnter}>Enter it</button>}
+      {enterHref && <a className="link-btn" href={enterHref}>Enter it</a>}
+    </div>
   );
 }
 
