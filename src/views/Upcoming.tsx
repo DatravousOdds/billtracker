@@ -21,7 +21,7 @@ export function UpcomingView() {
   }
 
   const total = (items: Occurrence[], shared: boolean) =>
-    items.filter((o) => (o.bill.owner_id === null) === shared).reduce((sum, o) => sum + o.bill.amount_cents, 0);
+    items.filter((o) => (o.bill.owner_id === null) === shared).reduce((sum, o) => sum + (o.payment?.amount_cents ?? o.bill.amount_cents), 0);
 
   return (
     <section className="view">
