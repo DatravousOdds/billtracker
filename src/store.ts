@@ -282,6 +282,8 @@ export async function deleteContribution(id: string) {
 
 /** Save the balance the signed-in partner typed: the one in use, or `week`'s. Returns their deposit with it applied. */
 export async function saveBalance(cents: number, week?: ISODate): Promise<DepositDue> {
+  // The spare money is frozen from this state, so a phone that missed a partner's deposit would keep a wrong credit all period.
+  if (!isDemo) await reload();
   const s = getState();
   const memberId = s.userId;
   const today = todayISO();
