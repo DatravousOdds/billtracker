@@ -65,6 +65,19 @@ export interface Contribution {
   amount_cents: number;
 }
 
+/** The real bank balance a partner typed. One per partner per payday week. */
+export interface AccountBalance {
+  id: string;
+  household_id: string;
+  member_id: string;
+  /** The payday week, the same key deposits use. No payday saved: that week's Sunday. */
+  week_start: ISODate;
+  amount_cents: number;
+  /** Frozen: the balance minus what deposits held for unpaid bills then. Negative = account short. */
+  spare_cents: number;
+  entered_at: string;
+}
+
 export interface Paycheck {
   id: string;
   household_id: string;
