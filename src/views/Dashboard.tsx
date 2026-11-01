@@ -186,6 +186,7 @@ export function DashboardView() {
       )}
 
       <h2 className="section-title">{win ? `Bills due ${range}` : 'Due this week'}</h2>
+      {restThisWeek.length > 0 && <p className="muted small section-hint">Tap a bill to edit it</p>}
       {restThisWeek.length
         ? <ul className="list">{restThisWeek.map((o) => <OccurrenceRow key={key(o)} o={o} today={today} />)}</ul>
         : <p className="empty">{toConfirm.length ? 'Nothing else' : 'Nothing'} due {win ? 'until payday' : 'this week'}.</p>}

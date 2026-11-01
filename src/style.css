@@ -83,6 +83,7 @@ pre { background: var(--surface-2); padding: 12px; border-radius: 10px; overflow
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
 .danger-text { color: var(--danger); }
+.nowrap { white-space: nowrap; }
 
 .loading { min-height: 100dvh; display: grid; place-items: center; color: var(--muted); padding: 24px; text-align: center; }
 
@@ -167,6 +168,7 @@ main { max-width: 640px; margin: 0 auto; }
 
 /* ---------- Lists ---------- */
 .section-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 8px 2px -6px; }
+.section-hint { margin: -8px 2px -6px; } /* same gap as a section title has to its list */
 .cat-title { font-size: 0.85rem; font-weight: 500; color: var(--muted); margin: 0 2px -8px; }
 .list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .list > li { border-top: 1px solid var(--line); }
@@ -176,9 +178,15 @@ main { max-width: 640px; margin: 0 auto; }
 .occ, .bill-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
 .bill-row { cursor: pointer; }
 .bill-row:hover, .bill-row:focus-visible { background: var(--surface-2); outline: none; }
+.occ-tap { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; margin: -12px 0 -12px -14px; padding: 12px 0 12px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.occ-tap:last-child { margin-right: -14px; padding-right: 14px; }
+.occ-tap:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.occ:has(.occ-tap:hover) { background: var(--surface-2); }
+.occ .pill { position: relative; }
+.occ .pill::after { content: ''; position: absolute; inset: -9px -6px; }
 .occ-main { flex: 1; min-width: 0; }
 .occ-name { font-weight: 600; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.occ-sub { font-size: 0.83rem; color: var(--muted); }
+.occ-sub { display: block; font-size: 0.83rem; color: var(--muted); }
 .occ-amt { font: 600 0.95rem var(--num); white-space: nowrap; }
 .occ.is-paid .occ-name, .occ.is-paid .occ-amt { color: var(--muted); }
 .occ.is-overdue { background: var(--danger-soft); }
@@ -238,6 +246,7 @@ input, select {
   font: 16px var(--font); color: var(--ink); background: var(--surface);
   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%; min-width: 0;
 }
+select { -webkit-appearance: none; appearance: none; padding-right: 32px; background-repeat: no-repeat; background-size: 5px 5px; background-position: right 17px center, right 12px center; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); }
 input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 input[inputmode='decimal'] { font-family: var(--num); }
 label.check, label.radio { display: flex; align-items: flex-start; gap: 10px; color: var(--ink); font-weight: 500; font-size: 0.95rem; }
@@ -260,8 +269,8 @@ legend { font-size: 0.8rem; font-weight: 700; color: var(--muted); padding: 0 4p
 .ledger { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.9rem; }
 .ledger th, .ledger td { text-align: right; padding: 6px 4px; border-bottom: 1px solid var(--line); }
 .ledger th:first-child { text-align: left; }
-.ledger thead th { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
-.ledger td { font-family: var(--num); }
+.ledger thead th { font-size: 0.75rem; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.ledger td { font-family: var(--num); font-size: 0.8rem; white-space: nowrap; padding-left: 10px; }
 .ledger .pos { color: var(--accent); font-weight: 700; }
 .ledger .neg { color: var(--danger); font-weight: 700; }
 
