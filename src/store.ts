@@ -118,7 +118,8 @@ export async function stopRealtime() {
 
 async function reload() {
   const s = getState();
-  await load(s.userId, s.household.id);
+  // The write already committed. Failing here would invite a retry that duplicates it; realtime catches the screen up.
+  await load(s.userId, s.household.id).catch(console.error);
 }
 
 // ---------- Derived ----------
@@ -218,6 +219,7 @@ export async function markPaid(bill: Bill, dueDate: string, amountCents: number,
     amount_cents: amountCents, paid_by: paidBy, paid_on: paidOn,
   });
   if (res.error?.code === '23505') throw new Error('This date was already confirmed paid');
+  if (res.error?.code === '23503') throw new Error('That bill was removed');
   check(res);
   await reload();
 }

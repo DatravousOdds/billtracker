@@ -66,7 +66,9 @@ export function OccurrenceRow({ o, today = todayISO() }: { o: Occurrence; today?
 }
 
 /** Confirm a due date as paid or, given its payment, edit that payment. */
-export function PaySheet({ bill, dueDate, payment, onClose }: { bill: Bill; dueDate: string; payment?: Payment; onClose: () => void }) {
+export function PaySheet({ bill, dueDate, payment: opened, onClose }: { bill: Bill; dueDate: string; payment?: Payment; onClose: () => void }) {
+  // Fixed at open: if a partner's payment arrives mid-form, saving must not turn a confirm into an overwrite of theirs.
+  const [payment] = useState(opened);
   const s = getState();
   const [busy, run] = useBusy();
   const defaultPayer = payment ? payment.paid_by ?? '' : bill.owner_id ?? (s.household.weekly_mode === 'smoothed' ? '' : s.userId);
@@ -100,11 +102,11 @@ export function PaySheet({ bill, dueDate, payment, onClose }: { bill: Bill; dueD
           </select>
         </label>
         <label>Paid on
-          <input name="paid_on" type="date" required defaultValue={payment?.paid_on ?? todayISO()} />
+          <input name="paid_on" type="date" required min="1900-01-01" max="9999-12-31" defaultValue={payment?.paid_on ?? todayISO()} />
         </label>
         <button className="btn primary block" type="submit" disabled={busy}>{payment ? 'Save changes' : "Yes, it's paid"}</button>
         {payment && (
-          <AsyncButton className="btn danger-ghost block" onClick={async () => {
+          <AsyncButton className="btn danger-ghost block" disabled={busy} onClick={async () => {
             if (!await confirmSheet('Remove payment?', `${bill.name}, due ${formatShort(dueDate)}, will go back to not paid.`, 'Remove', true)) return;
             await unmarkPaid(payment.id);
             onClose();
