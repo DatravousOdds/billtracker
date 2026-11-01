@@ -39,7 +39,7 @@ export function DashboardView() {
   const enterBalance = () => setEnteringBalance(true);
   const dueOf = (m: Member) => depositDue(m, today, plan.mode, s.bills, s.payments, sh, s.contributions, s.accountBalances);
   const myDue = me ? dueOf(me) : null;
-  // My card already has an "Enter account balance" button, so the running balance card doesn't need one.
+  // My card already has an "Enter shared account balance" button, so the running balance card doesn't need one.
   const cardAsks = !!myDue && myDue.weeks > 0 && myDue.balanceCents === null && (myDue.cents > 0 || deposited(s.userId) > 0);
   // Pay as due lists you first.
   const perMember = smoothed ? plan.perMember
@@ -164,9 +164,15 @@ export function DashboardView() {
                 </>)}
                 {mine && due.creditCents !== 0 && (
                   <div className="split-rows">
+                    <div><span>Your share of bills</span><span>{formatCents(due.overdueCents + due.weekCents.reduce((sum, c) => sum + c, 0))}</span></div>
                     {due.creditCents > 0
-                      ? <div><span>In the account</span><span>−{formatCents(due.creditCents)}</span></div>
-                      : <div><span>Account short</span><span>+{formatCents(-due.creditCents)}</span></div>}
+                      ? <div><span>{formatCents(due.spareCents)} extra in the account</span><span>−{formatCents(due.creditCents)}</span></div>
+                      : <div><span>Account is {formatCents(-due.spareCents)} short</span><span>+{formatCents(-due.creditCents)}</span></div>}
+                    <div>
+                      {due.creditCents < 0 ? `Your ${pct(p.ratio)} is added so the bills still get paid.`
+                        : due.cents === 0 && done === 0 ? `Your ${pct(p.ratio)} of the extra covers this whole deposit.`
+                        : `Your ${pct(p.ratio)} of the extra comes off your deposit.`}
+                    </div>
                   </div>
                 )}
                 {due.shortCents > 0 && <div className="small danger-text">{formatCents(due.shortCents)} more than {isMe ? 'your' : 'their'} paycheck covers</div>}

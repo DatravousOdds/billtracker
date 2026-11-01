@@ -193,6 +193,8 @@ export interface DepositDue {
   shortCents: number;
   /** Pay as due, already in `cents`: above 0 is "In the account", below 0 is "Account short". */
   creditCents: number;
+  /** Pay as due: the frozen spare money behind that credit. Below 0 is how much the account is short. */
+  spareCents: number;
   /** Pay as due: the balance they typed for this deposit, or null if they haven't. */
   balanceCents: number | null;
 }
@@ -269,7 +271,7 @@ function payAsDue(member: Member, period: Period, bills: Bill[], payments: Payme
   const creditCents = spare < 0 ? -shareOf(member, shares, -spare) : Math.min(shareOf(member, shares, spare), asked);
   return {
     cents: asked - creditCents, weeks: weekCents.length, from, to, overdueCents, weekCents,
-    nextPayday: null, lastPayday: null, creditCents, balanceCents: entry?.amount_cents ?? null,
+    nextPayday: null, lastPayday: null, creditCents, spareCents: spare, balanceCents: entry?.amount_cents ?? null,
   };
 }
 
@@ -329,7 +331,7 @@ export function depositDue(
     const period = currentPeriod(member, date);
     if (period) return capped(payAsDue(member, period, bills, payments, shares, contributions, balances), paydays(member, start, end).length ? PER_YEAR[member.pay_frequency] : 52);
   }
-  const noBalance = { creditCents: 0, balanceCents: null };
+  const noBalance = { creditCents: 0, spareCents: 0, balanceCents: null };
   const cents = share(start);
   const weekly = { cents, weeks: 1, from: start, to: end, overdueCents: 0, weekCents: [cents], nextPayday: null, lastPayday: null, ...noBalance };
   if (!member.payday) return capped(weekly, 52);
