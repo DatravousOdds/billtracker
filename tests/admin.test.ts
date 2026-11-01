@@ -8,6 +8,7 @@ import adminSql from '../supabase/admin.sql?raw';
 import paycheckAverageSql from '../supabase/paycheck-average.sql?raw';
 import ownIncomeSql from '../supabase/own-income.sql?raw';
 import customSplitSql from '../supabase/custom-split.sql?raw';
+import paymentEditsSql from '../supabase/payment-edits.sql?raw';
 
 // The bits of Supabase the schema relies on: API roles, auth.users, auth.uid(), default grants.
 const SUPABASE_STUB = `
@@ -84,7 +85,7 @@ async function count(sql: string, params: unknown[] = []) {
 beforeAll(async () => {
   db = await PGlite.create({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
-  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql]) await db.exec(sql);
+  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql, paymentEditsSql, paymentEditsSql]) await db.exec(sql);
 }, 60_000);
 
 describe('normal users', () => {
@@ -308,5 +309,103 @@ describe('custom-split.sql', () => {
     await db.query('select public.leave_household()');
     await as(null);
     expect(await split(h.hid)).toEqual({ split_member: null, split_percent: null, split_proposed_by: null, split_proposed_percent: null });
+  });
+});
+
+describe('payment-edits.sql', () => {
+  /** A $1,000.00 Rent payment due Oct 1, paid Oct 14 by `paidBy`. */
+  async function addPayment(userId: string, hid: string, paidBy: string | null) {
+    const bill = await addBill(userId, hid);
+    const [{ id }] = await rows<{ id: string }>(
+      `insert into payments (household_id, bill_id, due_date, paid_on, amount_cents, paid_by)
+       values ($1, $2, '2026-10-01', '2026-10-14', 100000, $3) returning id`, [hid, bill, paidBy]);
+    return id;
+  }
+
+  const edits = async (hid: string) => {
+    await as(null);
+    return rows<{ actor: string; message: string }>(
+      `select actor, message from activity_log where household_id = $1 and message like '%edited%'`, [hid]);
+  };
+
+  it('logs every changed field under the partner who edited, even on the other partner\'s payment', async () => {
+    const h = await household('Alex', 'Sam');
+    const [alex, sam] = h.ids;
+    const id = await addPayment(alex, h.hid, alex);
+
+    await as(sam);
+    const res = await db.query(`update payments set amount_cents = 125000, paid_on = '2026-10-02', paid_by = $1 where id = $2`, [sam, id]);
+    expect(res.affectedRows).toBe(1);
+    expect(await edits(h.hid)).toEqual([{
+      actor: sam,
+      message: 'Sam edited Rent (due Oct 1): $1,000.00 → $1,250.00, paid on Oct 14 → Oct 2, paid from Alex → Sam',
+    }]);
+  });
+
+  it('lists only the field that changed', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, h.ids[0]);
+
+    await as(h.ids[0]);
+    await db.query(`update payments set paid_on = '2026-10-02' where id = $1`, [id]);
+    expect((await edits(h.hid)).map((e) => e.message)).toEqual(['Alex edited Rent (due Oct 1): paid on Oct 14 → Oct 2']);
+  });
+
+  it('logs nothing when a save changes nothing', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, null);
+
+    await as(h.ids[0]);
+    const res = await db.query(`update payments set amount_cents = 100000, paid_on = '2026-10-14', paid_by = null where id = $1`, [id]);
+    expect(res.affectedRows).toBe(1);
+    expect(await edits(h.hid)).toEqual([]);
+  });
+
+  it('logs a change to and from the shared account', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, h.ids[0]);
+
+    await as(h.ids[0]);
+    await db.query('update payments set paid_by = null where id = $1', [id]);
+    await as(h.ids[0]);
+    await db.query('update payments set paid_by = $1 where id = $2', [h.ids[0], id]);
+    expect((await edits(h.hid)).map((e) => e.message).sort()).toEqual([
+      'Alex edited Rent (due Oct 1): paid from Alex → Shared account',
+      'Alex edited Rent (due Oct 1): paid from Shared account → Alex',
+    ]);
+  });
+
+  it('does not log an edit when deleting the payer\'s account clears paid_by', async () => {
+    const h = await household('Alex', 'Sam');
+    const [alex, sam] = h.ids;
+    const id = await addPayment(alex, h.hid, sam);
+
+    await as(null);
+    await db.query('delete from auth.users where id = $1', [sam]);
+    expect(await count('payments where id = $1 and paid_by is null', [id])).toBe(1);
+    expect(await edits(h.hid)).toEqual([]);
+  });
+
+  it('gives an outsider no way to change a payment or add to the log', async () => {
+    const h = await household('Alex', 'Sam');
+    const outsider = await household('Kim');
+    const id = await addPayment(h.ids[0], h.hid, null);
+
+    await as(outsider.ids[0]);
+    expect((await db.query('update payments set amount_cents = 1 where id = $1', [id])).affectedRows).toBe(0);
+    expect(await count('payments where id = $1 and amount_cents = 100000', [id])).toBe(1);
+    expect(await edits(h.hid)).toEqual([]);
+  });
+
+  it('still logs marking and unmarking', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, null);
+
+    await as(h.ids[1]);
+    await db.query('delete from payments where id = $1', [id]);
+    await as(null);
+    const log = (await rows<{ message: string }>('select message from activity_log where household_id = $1', [h.hid])).map((r) => r.message);
+    expect(log).toContain('Alex marked Rent (due 2026-10-01) paid: $1,000.00 by shared account');
+    expect(log).toContain('Sam unmarked Rent (due 2026-10-01) as paid');
   });
 });
