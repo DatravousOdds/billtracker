@@ -243,7 +243,7 @@ function funding(member: Member, now: ISODate, through: ISODate, bills: Bill[], 
     // What already left the account for this period came out of this deposit first.
     const spent = occurrences(bills, paid, d, p.to)
       .filter((o) => o.bill.owner_id === null && (o.payment ? o.payment.paid_by === null : o.bill.autopay && o.date <= now))
-      .reduce((s, o) => s + o.bill.amount_cents, 0);
+      .reduce((s, o) => s + (o.payment?.amount_cents ?? o.bill.amount_cents), 0);
     // shortcut: exact week match, so a schedule change orphans older deposits and spare reads high for up to a period; use a date range if that hurts.
     const put = contributions
       .filter((c) => c.member_id === member.user_id && c.week_start === weekStart(p.pay))

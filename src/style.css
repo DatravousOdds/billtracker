@@ -242,7 +242,8 @@ a.btn { display: inline-block; text-decoration: none; }
 
 .seg { display: inline-flex; background: var(--surface-2); padding: 3px; border-radius: 11px; gap: 2px; }
 .seg.full { display: flex; }
-.seg.full > button { flex: 1; padding-inline: 4px; }
+.seg.full > button { flex: 1; }
+.seg.full:has(> :nth-child(4)) > button { padding-inline: 4px; } /* four tabs have to fit a phone */
 .seg > button { appearance: none; border: 0; background: transparent; color: var(--muted); padding: 7px 12px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; }
 .seg > button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
 

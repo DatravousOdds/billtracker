@@ -144,6 +144,12 @@ describe('double charge', () => {
   it('overdue stays put when the bill is paid after payday', () => {
     expect(depositDue(alex, '2026-11-07', 'due', [x], [paid(x, '2026-11-08')], sh, [dep('sam', '2026-10-25', 6000)])).toMatchObject({ overdueCents: 4000 });
   });
+  it('what left the account is the amount paid, not the amount on the bill', () => {
+    const electric = bill('electric', 10000, '2026-11-09');
+    const pays = [{ ...paid(electric, '2026-11-10'), amount_cents: 14000 }];
+    // $80 in, 40% of the $140 gone: $24 left, and that's what the bank shows.
+    expect(enter(alex, 2400, '2026-11-12', [electric, phone], pays, sh, [dep('alex', '2026-11-01', 8000)]).spare_cents).toBe(0);
+  });
   it('autopay past its date counts as paid, not held', () => {
     const auto = bill('a', 10000, '2026-11-01', { autopay: true });
     expect(depositDue(alex, '2026-11-06', 'due', [auto], [], sh, [])).toMatchObject({ overdueCents: 0 });
