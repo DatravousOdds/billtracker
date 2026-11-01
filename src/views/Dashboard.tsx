@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { addDays, addMonths, formatShort, todayISO, toDate } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import { depositDue, ledger, leftover, needsConfirming, payWindow, periodPlan, weekPlan, type Leftover } from '../logic/split';
+import { depositDue, ledger, leftover, needsConfirming, payWindow, periodPlan, weekLeftover, weekPlan, type Leftover } from '../logic/split';
 import { addContribution, decideRequest, memberName, shares } from '../store';
 import type { BillRequest, Member } from '../types';
 import { useAppState, useBusy } from '../ui/hooks';
@@ -52,11 +52,11 @@ export function DashboardView() {
   // ----- Left after bills -----
   // Hidden until someone has income: the 50/50 fallback would show made-up negatives.
   const monthStart = today.slice(0, 8) + '01';
-  const weekLeft = leftover(s.bills, s.payments, sh, plan.weekStart, plan.weekEnd, 'week');
-  const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month', s.paychecks);
+  const weekLeft = weekLeftover(today, plan.mode, s.bills, s.payments, sh, s.contributions, s.paychecks, s.accountBalances);
+  const monthLeft = leftover(s.bills, s.payments, sh, monthStart, addDays(addMonths(monthStart, 1), -1), 'month', s.paychecks, !smoothed);
   const monthName = toDate(monthStart).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
-  const math = (l: Leftover) =>
-    `${formatCents(l.incomeCents)} income − ${formatCents(l.sharedCents)} shared${l.personalCents ? ` − ${formatCents(l.personalCents)} personal` : ''}`;
+  const math = (l: Leftover, income = 'income', shared = 'shared') =>
+    `${formatCents(l.incomeCents)} ${income} − ${formatCents(l.sharedCents)} ${shared}${l.personalCents ? ` − ${formatCents(l.personalCents)} personal` : ''}`;
 
   // ----- Balance -----
   const ahead = led.balances.find((b) => b.balanceCents > 0);
@@ -224,11 +224,11 @@ export function DashboardView() {
           </div>
           <details className="how">
             <summary>How it's worked out</summary>
-            <p className="muted small">Income minus the bills due in each period, paid or not. If you log each paycheck, {monthName} income is the checks dated in {monthName}.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</p>
+            <p className="muted small">{smoothed ? 'Income minus the bills due in each period, paid or not.' : `This week: your pay, minus your deposit (it includes your share of overdue bills), minus your personal bills. It's $0 in a week with no payday. ${monthName}: income minus the bills due that month, paid or not, and any unpaid bills from before it.`} If you log each paycheck, {monthName} income is the checks dated in {monthName}.{smoothed ? ' Uses bills actually due, not the smoothed weekly amount.' : ''}</p>
             {weekLeft.map((w, i) => (
               <p className="muted small" key={w.member.user_id}>
                 <strong>{w.member.display_name}</strong><br />
-                This week: {math(w)}<br />
+                This week: {smoothed ? math(w) : math(w, 'pay', 'deposit')}<br />
                 {monthName}: {math(monthLeft[i])}
               </p>
             ))}

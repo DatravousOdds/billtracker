@@ -361,10 +361,12 @@ export function depositDue(
 export interface Leftover {
   member: Member;
   incomeCents: number;
-  sharedCents: number; // their split of shared bills due in the period
+  sharedCents: number; // their split of shared bills due in the period, or their deposit (see weekLeftover)
   personalCents: number; // their own bills due in the period
   leftCents: number; // can be negative
 }
+
+const cost = (o: Occurrence) => o.payment?.amount_cents ?? o.bill.amount_cents;
 
 /**
  * What each partner has left from a period's income after the bills actually due in it
@@ -372,6 +374,7 @@ export interface Leftover {
  * Month income for someone who logs paychecks is the checks dated in that month (including
  * ones logged ahead of time), so a mid-month start counts only what was actually paid.
  * Everyone else, and a month with nothing logged yet, uses the average month.
+ * With `overdue`, unpaid bills from before the period count too (same rule as needsConfirming).
  */
 export function leftover(
   bills: Bill[],
@@ -381,9 +384,9 @@ export function leftover(
   to: ISODate,
   period: 'week' | 'month',
   paychecks: Paycheck[] = [],
+  overdue = false,
 ): Leftover[] {
-  const due = occurrences(bills, payments, from, to);
-  const cost = (o: Occurrence) => o.payment?.amount_cents ?? o.bill.amount_cents;
+  const due = [...occurrences(bills, payments, from, to), ...(overdue ? needsConfirming(bills, payments, addDays(from, -1)) : [])];
   const sharedTotal = due.filter((o) => o.bill.owner_id === null).reduce((s, o) => s + cost(o), 0);
   const parts = splitByRatio(sharedTotal, shares.map((s) => s.ratio));
   return shares.map((s, i) => {
@@ -456,4 +459,44 @@ export function ledger(
   const paidFromAccount = sharedPayments.filter((p) => p.paid_by === null).reduce((s, p) => s + p.amount_cents, 0);
 
   return { balances, accountCents: contributedTotal - paidFromAccount };
+}
+
+/**
+ * What each partner has left of this week's pay.
+ * Pay as due: their pay minus their deposit, minus their personal bills due in the days that
+ * deposit covers and any still unpaid from before them. Pay is the check logged in a payday week
+ * or else an average paycheck, or an average week without a saved payday. A week without a payday
+ * shows $0: no pay, no deposit, and the payday before it already counted its personal bills.
+ * Smoothed: see leftover.
+ */
+export function weekLeftover(
+  date: ISODate,
+  mode: WeeklyMode,
+  bills: Bill[],
+  payments: Payment[],
+  shares: Share[],
+  contributions: Contribution[],
+  paychecks: Paycheck[] = [],
+  balances: AccountBalance[] = [],
+): Leftover[] {
+  const start = weekStart(date);
+  const end = addDays(start, 6);
+  if (mode === 'smoothed') return leftover(bills, payments, shares, start, end, 'week');
+  return shares.map(({ member, income }) => {
+    const due = depositDue(member, date, mode, bills, payments, shares, contributions, balances);
+    const deposited = contributions
+      .filter((c) => c.member_id === member.user_id && c.week_start === start)
+      .reduce((sum, c) => sum + c.amount_cents, 0);
+    // A bill paid by payday lowers what's asked, but a deposit already made has left the paycheck.
+    const sharedCents = Math.max(due.cents, deposited);
+    const logged = paychecks.filter((p) => p.member_id === member.user_id && p.paid_on >= start && p.paid_on <= end);
+    const incomeCents = due.weeks === 0 ? 0
+      : !paydays(member, start, end).length ? Math.round((income.monthlyCents * 12) / 52)
+      : member.income_mode !== 'fixed' && logged.length ? logged.reduce((sum, p) => sum + p.amount_cents, 0)
+      : Math.round((income.monthlyCents * 12) / PER_YEAR[member.pay_frequency]);
+    const personalCents = due.weeks === 0 ? 0 : [...occurrences(bills, payments, due.from, due.to), ...needsConfirming(bills, payments, addDays(due.from, -1))]
+      .filter((o) => o.bill.owner_id === member.user_id)
+      .reduce((sum, o) => sum + cost(o), 0);
+    return { member, incomeCents, sharedCents, personalCents, leftCents: incomeCents - sharedCents - personalCents };
+  });
 }
