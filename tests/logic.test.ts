@@ -3,7 +3,7 @@ import { addMonths, weekStart } from '../src/logic/dates';
 import { monthlyFromPaycheck, monthlyIncome, paychecksNeeded, paydays } from '../src/logic/income';
 import { parseDollars, splitByRatio } from '../src/logic/money';
 import { dueDates, groupByCategory, sortByNextDue } from '../src/logic/recurrence';
-import { depositDue, incomeShares, ledger, leftover, needsConfirming, newlyOverdue, payWindow, periodPlan, weekPlan } from '../src/logic/split';
+import { depositDue, incomeShares, ledger, leftover, needsConfirming, newlyOverdue, payWindow, periodPlan, weekLeftover, weekPlan } from '../src/logic/split';
 import type { Bill, Member, Paycheck } from '../src/types';
 
 const member = (id: string, pay: number, freq: Member['pay_frequency'], mode: Member['income_mode'] = 'fixed'): Member => ({
@@ -421,5 +421,80 @@ describe('newlyOverdue', () => {
     expect(newlyOverdue(future, once('2026-10-10'), [], today)).toBe(1);
     expect(newlyOverdue(future, once('2026-08-11'), [], today)).toBe(0);
     expect(newlyOverdue(future, once('2026-08-12'), [], today)).toBe(1);
+  });
+});
+
+describe('Left after bills in pay as due', () => {
+  const today = '2026-11-01';
+  const tra = member('t', 104600, 'weekly');
+  const les = { ...member('l', 146600, 'biweekly'), payday: '2026-11-06' };
+  const sh = incomeShares([tra, les], [], today);
+  const once = (id: string, cents: number, date: string, owner: string | null = null) => bill(id, cents, 'once', date, owner);
+  const paid = (id: string, due_date: string, amount_cents: number) => ({ id, household_id: 'h', bill_id: id, due_date, paid_on: due_date, amount_cents, paid_by: null });
+  const made = (member_id: string, week_start: string, amount_cents: number) => ({ id: member_id + week_start, household_id: 'h', member_id, week_start, amount_cents });
+  // $320 overdue, $1,295 unpaid this week, $57 already paid.
+  const bills = [
+    once('late-1', 11000, '2026-10-24'), once('late-2', 5000, '2026-10-24'), once('late-3', 6000, '2026-10-24'),
+    once('late-4', 10000, '2026-10-31'), once('due-1', 36200, '2026-11-01'), once('due-2', 15800, '2026-11-05'),
+    once('due-3', 6000, '2026-11-05'), once('due-4', 56500, '2026-11-07'), once('due-5', 5000, '2026-11-07'),
+    once('due-6', 10000, '2026-11-07'), once('paid-1', 1700, '2026-11-01'), once('paid-2', 4000, '2026-11-01'),
+    once('next-week', 200000, '2026-11-14'),
+  ];
+  const payments = [paid('paid-1', '2026-11-01', 1700), paid('paid-2', '2026-11-01', 4000)];
+
+  it('week: pay minus the deposit, which includes their share of overdue bills', () => {
+    const [t] = weekLeftover(today, 'due', bills, payments, sh, []);
+    expect(t).toMatchObject({ incomeCents: 104600, sharedCents: 94957, personalCents: 0, leftCents: 9643 });
+    expect(t.sharedCents).toBe(depositDue(tra, today, 'due', bills, payments, sh, []).cents);
+  });
+
+  it('week: a payday week uses a full paycheck and the capped deposit', () => {
+    const [, l] = weekLeftover(today, 'due', bills, payments, sh, []);
+    expect(depositDue(les, today, 'due', bills, payments, sh, []).shortCents).toBeGreaterThan(0);
+    expect(l).toMatchObject({ incomeCents: 146600, sharedCents: 146600, leftCents: 0 });
+  });
+
+  it('week: a payday week uses the check logged that week when there is one', () => {
+    const logs = { ...les, income_mode: 'per_paycheck' as const };
+    const check = { id: 'c', household_id: 'h', member_id: 'l', amount_cents: 155000, paid_on: '2026-11-06' };
+    const [, l] = weekLeftover(today, 'due', bills, payments, incomeShares([tra, logs], [check], today), [], [check]);
+    expect(l.incomeCents).toBe(155000);
+  });
+
+  it('week: confirming a bill raises the number only until the deposit is made', () => {
+    const firstPaid = [...payments, paid('due-1', '2026-11-01', 36200)];
+    expect(weekLeftover(today, 'due', bills, firstPaid, sh, [])[0].leftCents).toBe(30927);
+    expect(weekLeftover(today, 'due', bills, firstPaid, sh, [made('t', today, 94957)])[0].leftCents).toBe(9643);
+  });
+
+  it('week: no pay and no deposit in a week without a payday', () => {
+    const [, l] = weekLeftover('2026-11-08', 'due', [once('own', 4000, '2026-11-10', 'l')], [], sh, []);
+    expect(l).toMatchObject({ incomeCents: 0, sharedCents: 0, personalCents: 4000, leftCents: -4000 });
+  });
+
+  it('week: personal bills cover the deposit window plus unpaid overdue ones', () => {
+    const own = [
+      once('late', 1000, '2026-10-31', 't'), once('this-week', 2000, '2026-11-03', 't'), once('settled', 3000, '2026-10-20', 't'),
+      once('after-window', 4000, '2026-11-08', 't'), once('lesly-window', 5000, '2026-11-10', 'l'), once('lesly-later', 6000, '2026-11-21', 'l'),
+    ];
+    const [t, l] = weekLeftover(today, 'due', own, [paid('settled', '2026-10-20', 3000)], sh, []);
+    expect(t.personalCents).toBe(3000);
+    expect(l.personalCents).toBe(5000);
+  });
+
+  it('week: smoothed keeps the average week and the bills due that week', () => {
+    const [t] = weekLeftover(today, 'smoothed', bills, payments, sh, []);
+    expect(t.incomeCents).toBe(104600);
+    expect(t.sharedCents).toBe(79494);
+    expect(t.leftCents).toBe(25106);
+  });
+
+  it('month: takes out unpaid bills from before the month only when asked', () => {
+    const november = (overdue: boolean) => leftover(bills.filter((b) => b.id !== 'next-week'), payments, sh, '2026-11-01', '2026-11-30', 'month', [], overdue);
+    expect(november(false)[0].sharedCents).toBe(79494);
+    expect(november(true)[0].sharedCents).toBe(98309);
+    const paidLate = [...payments, paid('late-3', '2026-10-24', 6000)];
+    const [t] = leftover(bills.filter((b) => b.id !== 'next-week'), paidLate, sh, '2026-11-01', '2026-11-30', 'month', [], true);
+    expect(t.sharedCents).toBe(94781);
   });
 });
