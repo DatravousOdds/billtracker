@@ -6,10 +6,12 @@ export function toast(message: string, kind: 'ok' | 'error' = 'ok'): void {
   if (!el) {
     el = document.createElement('div');
     el.id = 'toast';
-    el.setAttribute('role', 'status');
-    el.setAttribute('aria-live', 'polite');
-    document.body.append(el);
   }
+  // showModal's top layer hides body, so errors go in the open sheet (blurred so the keyboard can't cover them). A success's sheet is about to unmount, so it stays on body.
+  const sheet = kind === 'error' ? document.querySelector('dialog[open]') : null;
+  (sheet ?? document.body).append(el);
+  if (sheet && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   el.textContent = message;
   el.className = `show ${kind}`;
   window.clearTimeout(toastTimer);
