@@ -183,11 +183,11 @@ export function DashboardView() {
                   : due.cents === 0 && done === 0 ? due.creditCents > 0 && <div className="covered">Covered by what's in the account</div>
                   : done >= due.cents ? <>
                       <span className="pill paid">✓ Deposited</span>
-                      {due.balanceCents === null && <button type="button" className="link-btn block" aria-haspopup="dialog" onClick={enterBalance}>Enter account balance</button>}
+                      {due.balanceCents === null && <button type="button" className="link-btn block" aria-haspopup="dialog" onClick={enterBalance}>Enter shared account balance</button>}
                     </>
                   : due.balanceCents === null ? <>
-                      <div className="muted small">Enter what's in the account to see your exact deposit.</div>
-                      <button type="button" className="btn primary block" aria-haspopup="dialog" onClick={enterBalance}>Enter account balance</button>
+                      <div className="muted small">Enter what's in the shared account to see your exact deposit.</div>
+                      <button type="button" className="btn primary block" aria-haspopup="dialog" onClick={enterBalance}>Enter shared account balance</button>
                       <button type="button" className="link-btn block" aria-haspopup="dialog" onClick={confirmDeposit}>Skip this and confirm my deposit</button>
                     </>
                   : <button type="button" className="btn primary block" aria-haspopup="dialog" onClick={confirmDeposit}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>)

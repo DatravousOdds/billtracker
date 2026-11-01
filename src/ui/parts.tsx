@@ -271,14 +271,14 @@ export function BalanceSheet({ week, onClose }: { week?: ISODate; onClose: () =>
     <Sheet title={week ? 'Edit balance' : "What's in the bill account?"} onClose={onClose}>
       <form className="sheet-body form" onSubmit={submit}>
         <p className="muted">
-          {!week ? "Type what your bank shows right now, before you deposit. We'll use it to work out your deposit."
+          {!week ? "Type what the shared bill account shows right now, before you deposit. We'll use it to work out your deposit."
             : current ? 'This balance is in use. Changing it updates your deposit.'
             : "This only corrects the record. Past deposits won't change."}
         </p>
         {current && needsConfirming(s.bills, s.payments, today).some((o) => o.bill.owner_id === null) && (
           <p className="sheet-warn">Confirm anything already paid first, or this will look short.</p>
         )}
-        <label>{week && row ? `Balance on ${formatShort(todayISO(new Date(row.entered_at)))}` : 'Account balance'}
+        <label>{week && row ? `Balance on ${formatShort(todayISO(new Date(row.entered_at)))}` : 'Shared account balance'}
           <input ref={input} name="amount" inputMode="decimal" required defaultValue={row ? centsToInput(row.amount_cents) : ''} />
         </label>
         <button className="btn primary block" type="submit" disabled={busy}>Save balance</button>
