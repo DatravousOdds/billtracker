@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { formatShort, todayISO } from '../logic/dates';
 import { formatCents } from '../logic/money';
-import { balanceWeek, ledger } from '../logic/split';
-import { deleteContribution, memberName, shares } from '../store';
+import { ledger, paycheckWeek } from '../logic/split';
+import { deleteContribution, depositPayday, homeName, memberName, shares } from '../store';
 import type { ISODate, Payment } from '../types';
 import { useAppState } from '../ui/hooks';
 import { AsyncButton, BalanceSheet, BillAccountLine, PaySheet, You, pct } from '../ui/parts';
@@ -44,22 +44,25 @@ export function HistoryView() {
     ) : <p className="empty">No payments yet.</p>,
 
     deposits: () => s.contributions.length ? (
-      <ul className="list">{s.contributions.map((c) => (
-        <li className="occ" key={c.id}>
-          <div className="occ-main">
-            <div className="occ-name">{memberName(c.member_id)}</div>
-            <div className="occ-sub">Week of {formatShort(c.week_start)}</div>
-          </div>
-          <div className="occ-amt">{formatCents(c.amount_cents)}</div>
-          {c.member_id === s.userId && (
-            <AsyncButton className="icon-btn" aria-label="Remove deposit" onClick={async () => {
-              await deleteContribution(c.id);
-              toast('Deposit removed');
-            }}>✕</AsyncButton>
-          )}
-        </li>
-      ))}</ul>
-    ) : <p className="empty">No deposits yet. Confirm yours from This week.</p>,
+      <ul className="list">{s.contributions.map((c) => {
+        const pay = depositPayday(c.member_id, c.week_start);
+        return (
+          <li className="occ" key={c.id}>
+            <div className="occ-main">
+              <div className="occ-name">{memberName(c.member_id)}</div>
+              <div className="occ-sub">{pay ? `For ${formatShort(pay)} pay` : `Week of ${formatShort(c.week_start)}`}</div>
+            </div>
+            <div className="occ-amt">{formatCents(c.amount_cents)}</div>
+            {c.member_id === s.userId && (
+              <AsyncButton className="icon-btn" aria-label="Remove deposit" onClick={async () => {
+                await deleteContribution(c.id);
+                toast('Deposit removed');
+              }}>✕</AsyncButton>
+            )}
+          </li>
+        );
+      })}</ul>
+    ) : <p className="empty">No deposits yet. Confirm yours from {homeName()}.</p>,
 
     balances: () => s.accountBalances.length ? (
       <ul className="list">{s.accountBalances.map((b) => {
@@ -70,7 +73,7 @@ export function HistoryView() {
           <span className="occ-main">
             <span className="occ-name">
               <span>{memberName(b.member_id)}<You show={isMe} /></span>
-              {payAsDue && member && balanceWeek(member, todayISO()) === b.week_start && <span className="badge">In use</span>}
+              {payAsDue && member && paycheckWeek(member, todayISO()) === b.week_start && <span className="badge">In use</span>}
             </span>
             <span className="occ-sub">Entered {date}</span>
           </span>
@@ -87,7 +90,7 @@ export function HistoryView() {
           </li>
         );
       })}</ul>
-    ) : <p className="empty">No balances yet. Enter one from This week.</p>,
+    ) : <p className="empty">No balances yet. Enter one from {homeName()}.</p>,
 
     activity: () => s.activity.length ? (
       <ul className="list feed">{s.activity.map((a) => (

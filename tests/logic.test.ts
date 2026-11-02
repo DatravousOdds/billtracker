@@ -181,8 +181,8 @@ describe('split', () => {
     const due = (m: Member, date: string, deposits = [deposit(b.user_id, '2026-10-04')]) => depositDue(m, date, 'smoothed', bills, [], shares, deposits);
     const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-23' };
     // Week of Oct 11–17 is covered by the Oct 9 pay; Oct 23 covers Oct 18–31; Oct 25–31 is already covered.
-    expect(due(biweekly, '2026-10-13')).toEqual({ cents: 0, weeks: 0, from: '2026-10-11', to: '2026-10-17', overdueCents: 0, weekCents: [], nextPayday: '2026-10-23', lastPayday: '2026-10-09', limitCents: 115385, shortCents: 0, creditCents: 0, spareCents: 0, balanceCents: null });
-    expect(due(biweekly, '2026-10-20')).toEqual({ cents: weekly * 2, weeks: 2, from: '2026-10-18', to: '2026-10-31', overdueCents: 0, weekCents: [weekly, weekly], nextPayday: null, lastPayday: null, limitCents: 115385, shortCents: 0, creditCents: 0, spareCents: 0, balanceCents: null });
+    expect(due(biweekly, '2026-10-13')).toEqual({ cents: 0, weeks: 0, from: '2026-10-11', to: '2026-10-17', overdueCents: 0, weekCents: [], nextPayday: '2026-10-23', lastPayday: '2026-10-09', week: '2026-10-11', limitCents: 115385, shortCents: 0, creditCents: 0, spareCents: 0, balanceCents: null });
+    expect(due(biweekly, '2026-10-20')).toEqual({ cents: weekly * 2, weeks: 2, from: '2026-10-18', to: '2026-10-31', overdueCents: 0, weekCents: [weekly, weekly], nextPayday: null, lastPayday: null, week: '2026-10-18', limitCents: 115385, shortCents: 0, creditCents: 0, spareCents: 0, balanceCents: null });
     expect(due(biweekly, '2026-10-27')).toMatchObject({ cents: 0, weeks: 0, nextPayday: '2026-11-06' });
     // Says which paycheck covers the week only when they deposited from it.
     expect(due(biweekly, '2026-10-13', [])).toMatchObject({ cents: 0, lastPayday: null });
@@ -223,11 +223,11 @@ describe('split', () => {
     // Paid by payday is left out; paid after it still counts.
     expect(depositDue(biweekly, '2026-10-24', 'due', bills, [paid('water', '2026-10-23'), paid('internet', '2026-10-28')], shares, []))
       .toMatchObject({ overdueCents: mine(8000), weekCents: [mine(6000), mine(133000)] });
-    // The week between paydays: nothing due, covered by the Oct 23 pay only if they deposited from it.
-    expect(due(biweekly, '2026-10-27', ['2026-10-18'])).toMatchObject({ cents: 0, weeks: 0, nextPayday: '2026-11-06', lastPayday: '2026-10-23' });
-    expect(due(biweekly, '2026-10-27')).toMatchObject({ cents: 0, weeks: 0, lastPayday: null });
+    // The week between paydays: still the Oct 23 paycheck.
+    expect(due(biweekly, '2026-10-27')).toMatchObject({ ...oct23, week: '2026-10-18' });
     // Paid weekly on Fridays: each deposit covers Saturday through the next Friday.
-    expect(due({ ...b, pay_frequency: 'weekly', payday: '2026-11-20' }, '2026-11-17')).toMatchObject({ weeks: 1, from: '2026-11-21', to: '2026-11-27' });
+    expect(due({ ...b, pay_frequency: 'weekly', payday: '2026-11-20' }, '2026-11-17')).toMatchObject({ weeks: 1, from: '2026-11-14', to: '2026-11-20' });
+    expect(due({ ...b, pay_frequency: 'weekly', payday: '2026-11-20' }, '2026-11-20')).toMatchObject({ weeks: 1, from: '2026-11-21', to: '2026-11-27' });
     // Paid monthly on the 1st: Dec 1 covers Dec 2 – Jan 1, the last chunk only Dec 30 – Jan 1 (January rent).
     expect(due({ ...b, pay_frequency: 'monthly', payday: '2026-11-01' }, '2026-12-01')).toMatchObject({
       weeks: 5, from: '2026-12-02', to: '2027-01-01', weekCents: [mine(3000), 0, mine(8000), mine(10000), mine(130000)],
@@ -241,7 +241,7 @@ describe('split', () => {
     const weekly = weekPlan('2026-10-13', 'smoothed', bills, [], lowShares).perMember[1].sharedCents;
     // 5 weeks of share (~$641) is more than the $500 paycheck.
     expect(depositDue(low, '2026-10-01', 'smoothed', bills, [], lowShares, []))
-      .toEqual({ cents: 50000, weeks: 5, from: '2026-09-27', to: '2026-10-31', overdueCents: 0, weekCents: Array(5).fill(weekly), nextPayday: null, lastPayday: null, limitCents: 50000, shortCents: weekly * 5 - 50000, creditCents: 0, spareCents: 0, balanceCents: null });
+      .toEqual({ cents: 50000, weeks: 5, from: '2026-09-27', to: '2026-10-31', overdueCents: 0, weekCents: Array(5).fill(weekly), nextPayday: null, lastPayday: null, week: '2026-09-27', limitCents: 50000, shortCents: weekly * 5 - 50000, creditCents: 0, spareCents: 0, balanceCents: null });
     // Depositing weekly (no payday, or one that can't be used): capped at a week's earnings.
     expect(depositDue({ ...low, payday: null }, '2026-10-13', 'smoothed', bills, [], lowShares, []).limitCents).toBe(11538);
     expect(depositDue({ ...low, payday: '2028-03-03' }, '2026-10-13', 'smoothed', bills, [], lowShares, []).limitCents).toBe(11538);
@@ -258,7 +258,7 @@ describe('split', () => {
     expect(depositDue(low, '2026-10-23', 'due', bills, [], sh, [])).toEqual({
       cents: 50000, limitCents: 50000, shortCents: 40000, creditCents: 0, spareCents: 0, balanceCents: null,
       weeks: 2, from: '2026-10-24', to: '2026-11-06', overdueCents: 30000,
-      weekCents: [0, 60000], nextPayday: null, lastPayday: null,
+      weekCents: [0, 60000], nextPayday: null, lastPayday: null, week: '2026-10-18',
     });
   });
 
@@ -276,7 +276,7 @@ describe('split', () => {
     // A payday deposit asks once for what's unpaid by the Oct 16 payday (repair, phone), on top of Oct 17–30 (nothing due).
     const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-16' };
     const overdue = splitByRatio(34000, shares.map((s) => s.ratio))[1];
-    expect(depositDue(biweekly, '2026-10-13', 'due', bills, paid, shares, [])).toMatchObject({
+    expect(depositDue(biweekly, '2026-10-16', 'due', bills, paid, shares, [])).toMatchObject({
       cents: overdue, overdueCents: overdue, weeks: 2, from: '2026-10-17', to: '2026-10-30',
     });
   });
@@ -449,16 +449,16 @@ describe('Left after bills in pay as due', () => {
     expect(t.sharedCents).toBe(depositDue(tra, today, 'due', bills, payments, sh, []).cents);
   });
 
-  it('week: a payday week uses a full paycheck and the capped deposit', () => {
-    const [, l] = weekLeftover(today, 'due', bills, payments, sh, []);
-    expect(depositDue(les, today, 'due', bills, payments, sh, []).shortCents).toBeGreaterThan(0);
+  it('week: uses a full paycheck and the capped deposit', () => {
+    const [, l] = weekLeftover('2026-11-06', 'due', bills, payments, sh, []);
+    expect(depositDue(les, '2026-11-06', 'due', bills, payments, sh, []).shortCents).toBeGreaterThan(0);
     expect(l).toMatchObject({ incomeCents: 146600, sharedCents: 146600, leftCents: 0 });
   });
 
-  it('week: a payday week uses the check logged that week when there is one', () => {
+  it('week: uses the check logged for that payday when there is one', () => {
     const logs = { ...les, income_mode: 'per_paycheck' as const };
     const check = { id: 'c', household_id: 'h', member_id: 'l', amount_cents: 155000, paid_on: '2026-11-06' };
-    const [, l] = weekLeftover(today, 'due', bills, payments, incomeShares([tra, logs], [check], today), [], [check]);
+    const [, l] = weekLeftover('2026-11-10', 'due', bills, payments, incomeShares([tra, logs], [check], today), [], [check]);
     expect(l.incomeCents).toBe(155000);
   });
 
@@ -480,11 +480,10 @@ describe('Left after bills in pay as due', () => {
     expect(weekLeftover('2026-11-03', 'due', bills, [...payments, late], sh, [])[0].leftCents).toBe(9643);
   });
 
-  it('week: a week without a payday shows $0, since the payday before it counted its bills', () => {
+  it('week: the same number for the whole paycheck, including weeks without a payday', () => {
     const own = [once('own', 4000, '2026-11-10', 'l')];
-    expect(weekLeftover(today, 'due', own, [], sh, [])[1].personalCents).toBe(4000);
-    const [, l] = weekLeftover('2026-11-08', 'due', own, [], sh, []);
-    expect(l).toMatchObject({ incomeCents: 0, sharedCents: 0, personalCents: 0, leftCents: 0 });
+    expect(weekLeftover('2026-11-06', 'due', own, [], sh, [])[1].personalCents).toBe(4000);
+    expect(weekLeftover('2026-11-15', 'due', own, [], sh, [])[1]).toEqual(weekLeftover('2026-11-06', 'due', own, [], sh, [])[1]);
   });
 
   it('week: personal bills cover the deposit window plus unpaid overdue ones', () => {
@@ -492,7 +491,8 @@ describe('Left after bills in pay as due', () => {
       once('late', 1000, '2026-10-31', 't'), once('this-week', 2000, '2026-11-03', 't'), once('settled', 3000, '2026-10-20', 't'),
       once('after-window', 4000, '2026-11-08', 't'), once('lesly-window', 5000, '2026-11-10', 'l'), once('lesly-later', 6000, '2026-11-21', 'l'),
     ];
-    const [t, l] = weekLeftover(today, 'due', own, [paid('settled', '2026-10-20', 3000)], sh, []);
+    const [t] = weekLeftover(today, 'due', own, [paid('settled', '2026-10-20', 3000)], sh, []);
+    const [, l] = weekLeftover('2026-11-06', 'due', own, [paid('settled', '2026-10-20', 3000)], sh, []);
     expect(t.personalCents).toBe(3000);
     expect(l.personalCents).toBe(5000);
   });

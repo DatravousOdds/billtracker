@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { balanceEntry, balanceWeek, depositDue, incomeShares, type Share } from '../src/logic/split';
+import { balanceEntry, paycheckWeek, depositDue, incomeShares, type Share } from '../src/logic/split';
 import type { AccountBalance, Bill, Contribution, Member, Payment } from '../src/types';
 
 const m = (id: string, payday: string | null, f: Member['pay_frequency'] = 'biweekly', pay = 0): Member => ({
@@ -53,6 +53,52 @@ describe('every pay schedule', () => {
   });
 });
 
+describe('the deposit follows the pay window', () => {
+  // Paid weekly on Fridays. Water is late, Internet falls in the Oct 30 window, Rent in the Nov 6 window.
+  const fri = m('alex', '2026-10-30', 'weekly');
+  const sh = sharesOf(fri, sam);
+  const water = bill('water', 5000, '2026-10-29');
+  const internetNov5 = bill('internet', 6000, '2026-11-05');
+  const three = [water, internetNov5, rent];
+  it('an Oct 30 paycheck covers through Nov 6 until payday, then moves on', () => {
+    for (const date of ['2026-10-30', '2026-11-02', '2026-11-05']) {
+      expect(depositDue(fri, date, 'due', three, [], sh, [])).toMatchObject({ from: '2026-10-31', to: '2026-11-06', week: '2026-10-25', overdueCents: 2000, weekCents: [2400], cents: 4400 });
+    }
+    expect(depositDue(fri, '2026-11-06', 'due', three, [], sh, [dep('alex', '2026-10-25', 4400)]))
+      .toMatchObject({ from: '2026-11-07', to: '2026-11-13', week: '2026-11-01', overdueCents: 0, weekCents: [17600], cents: 17600 });
+  });
+  it('a bill not due yet is never overdue', () => {
+    expect(depositDue(fri, '2026-11-02', 'due', [internetNov5, rent], [], sh, [])).toMatchObject({ overdueCents: 0, weekCents: [2400], cents: 2400 });
+  });
+  it('a missed deposit carries its unpaid bills, not its paid ones', () => {
+    expect(depositDue(fri, '2026-11-06', 'due', three, [], sh, [])).toMatchObject({ overdueCents: 4400, cents: 22000 });
+    expect(depositDue(fri, '2026-11-06', 'due', three, [paid(water, '2026-11-03')], sh, [])).toMatchObject({ overdueCents: 2400, cents: 20000 });
+  });
+  it('paying a bill mid-window moves nothing', () => {
+    expect(depositDue(fri, '2026-11-05', 'due', three, [paid(internetNov5, '2026-11-04'), paid(water, '2026-11-03')], sh, [])).toMatchObject({ cents: 4400 });
+  });
+  it('every 2 weeks: the same deposit all window, at one paycheck\'s cap', () => {
+    const bi = m('alex', '2026-10-30', 'biweekly', 10000);
+    const big = sharesOf(bi, sam);
+    const first = depositDue(bi, '2026-10-31', 'due', [rent], [], big, []);
+    expect(first).toMatchObject({ to: '2026-11-13', cents: 10000, limitCents: 10000, shortCents: 7600 });
+    expect(depositDue(bi, '2026-11-09', 'due', [rent], [], big, [])).toEqual(first);
+  });
+  it('monthly and twice a month keep the window to the next payday', () => {
+    expect(depositDue(m('alex', '2026-10-30', 'monthly'), '2026-11-20', 'due', [], [], sh, [])).toMatchObject({ from: '2026-10-31', to: '2026-11-30', week: '2026-10-25' });
+    expect(depositDue(m('alex', '2026-10-30', 'semimonthly'), '2026-11-02', 'due', [], [], sh, [])).toMatchObject({ from: '2026-10-31', to: '2026-11-14', week: '2026-10-25' });
+  });
+  it('no payday saved: Sunday to Saturday, saved under this week', () => {
+    expect(depositDue(m('alex', null), '2026-11-02', 'due', [], [], sh, [])).toMatchObject({ from: '2026-11-01', to: '2026-11-07', week: '2026-11-01' });
+  });
+  it('a balance typed mid-window counts for that paycheck', () => {
+    const row = enter(fri, 43000, '2026-11-02', three, [], sh, [dep('sam', '2026-10-25', 33000)]);
+    expect(row).toMatchObject({ week_start: '2026-10-25', spare_cents: 10000 });
+    expect(depositDue(fri, '2026-11-05', 'due', three, [], sh, [], [row])).toMatchObject({ creditCents: 4000, cents: 400 });
+    expect(depositDue(fri, '2026-11-06', 'due', three, [], sh, [], [row])).toMatchObject({ creditCents: 0, balanceCents: null });
+  });
+});
+
 describe('the lock and the paid-after-payday rule', () => {
   const alex = m('alex', '2026-11-06');
   const sh = sharesOf(alex, sam);
@@ -81,10 +127,10 @@ describe('the lock and the paid-after-payday rule', () => {
     const rich = enter(alex, 100000, '2026-11-06', bills, [], sh, [samDep]);
     expect(depositDue(alex, '2026-11-06', 'due', bills, [], sh, [samDep], [rich])).toMatchObject({ creditCents: 24000, spareCents: 70000, cents: 0, balanceCents: 100000 });
   });
-  it('new payday, schedule change, off-week: the entry stops counting', () => {
+  it('new payday and schedule change stop the entry counting; it holds for the whole window', () => {
     expect(depositDue(alex, '2026-11-20', 'due', bills, [], sh, [samDep], [row])).toMatchObject({ balanceCents: null, creditCents: 0 });
     expect(depositDue({ ...alex, payday: '2026-11-13' }, '2026-11-13', 'due', bills, [], sh, [samDep], [row])).toMatchObject({ balanceCents: null, creditCents: 0 });
-    expect(depositDue(alex, '2026-11-10', 'due', bills, [], sh, [samDep], [row])).toMatchObject({ cents: 0, weeks: 0, balanceCents: null });
+    expect(depositDue(alex, '2026-11-10', 'due', bills, [], sh, [samDep], [row])).toMatchObject({ cents: 22000, weeks: 2, creditCents: 2000, balanceCents: 35000 });
   });
   it('partner gone: all of the frozen spare is theirs', () => {
     expect(depositDue(alex, '2026-11-06', 'due', bills, [], incomeShares([alex], [], '2026-11-06'), [], [row])).toMatchObject({ creditCents: 5000, cents: 55000 });
@@ -116,11 +162,12 @@ describe('editing (history)', () => {
     expect(fixed).toMatchObject({ week_start: '2026-10-18', amount_cents: 40000, spare_cents: old.spare_cents });
     expect(depositDue(alex, '2026-11-06', 'due', bills, [], sh, [samDep], [fixed, row]).cents).toBe(22000);
   });
-  it('in use: this payday week, else the last payday week; no payday: this week', () => {
-    expect(balanceWeek(alex, '2026-11-02')).toBe('2026-11-01'); // the card asks all week
-    expect(balanceWeek(alex, '2026-11-10')).toBe('2026-11-01'); // between paydays
-    expect(balanceWeek(alex, '2026-11-20')).toBe('2026-11-15');
-    expect(balanceWeek(m('a', null), '2026-11-10')).toBe('2026-11-08');
+  it('in use: the last payday week, moving on payday itself; no payday: this week', () => {
+    expect(paycheckWeek(alex, '2026-11-05')).toBe('2026-10-18');
+    expect(paycheckWeek(alex, '2026-11-06')).toBe('2026-11-01');
+    expect(paycheckWeek(alex, '2026-11-10')).toBe('2026-11-01');
+    expect(paycheckWeek(alex, '2026-11-20')).toBe('2026-11-15');
+    expect(paycheckWeek(m('a', null), '2026-11-10')).toBe('2026-11-08');
   });
 });
 

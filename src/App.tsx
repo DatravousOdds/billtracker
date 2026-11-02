@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { isConfigured, supabase } from './supabase';
-import { demoSwitchUser, findMyHousehold, load, loadDemo, stopRealtime } from './store';
+import { demoSwitchUser, findMyHousehold, homeName, load, loadDemo, stopRealtime } from './store';
 import { todayISO } from './logic/dates';
 import { needsConfirming } from './logic/split';
 import { isDemo } from './demo';
@@ -153,7 +153,7 @@ function Shell() {
         {Object.entries(ROUTES).filter(([, r]) => r.nav).map(([key, r]) => (
           <a key={key} href={`#/${key}`} className={route === key ? 'on' : ''} aria-current={route === key ? 'page' : undefined}>
             <span className="tab-icon" aria-hidden="true">{r.icon}</span>
-            <span>{r.label}</span>
+            <span>{key === '' ? homeName() : r.label}</span>
             {key === '' && waiting > 0 && <span className="dot" aria-label={`${waiting} waiting for you`}>{waiting}</span>}
           </a>
         ))}

@@ -3,9 +3,9 @@ import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent 
 import { addDays, formatLong, formatShort, todayISO } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
 import { dueDates, RECURRENCE_LABEL } from '../logic/recurrence';
-import { balanceWeek, needsConfirming, newlyOverdue, type Occurrence } from '../logic/split';
+import { needsConfirming, newlyOverdue, paycheckWeek, type Occurrence } from '../logic/split';
 import {
-  deleteBill, getState, markPaid, memberName, requestOwnership, saveBalance, saveBill, unmarkPaid, updatePayment, type BillInput,
+  deleteBill, getState, homeName, markPaid, memberName, requestOwnership, saveBalance, saveBill, unmarkPaid, updatePayment, type BillInput,
 } from '../store';
 import type { Bill, ISODate, Payment, Recurrence } from '../types';
 import { useBusy } from './hooks';
@@ -216,7 +216,7 @@ export function BillSheet({ bill, onClose }: { bill: Bill | null; onClose: () =>
             {pending ? (
               <p className="muted small">
                 A request to make this bill {pending.kind === 'make_personal' ? `personal (${memberName(pending.owner_id)})` : 'shared'} is
-                waiting for {pending.requested_by === s.userId ? 'your partner' : 'you — see This week'}.
+                waiting for {pending.requested_by === s.userId ? 'your partner' : `you — see ${homeName()}`}.
               </p>
             ) : bill.owner_id === null ? (
               <>
@@ -252,7 +252,7 @@ export function BalanceSheet({ week, onClose }: { week?: ISODate; onClose: () =>
   // autoFocus does nothing here: the dialog only opens in Sheet's effect, which runs before this one.
   useEffect(() => input.current?.focus(), []);
   const today = todayISO();
-  const inUse = balanceWeek(s.members.find((m) => m.user_id === s.userId)!, today);
+  const inUse = paycheckWeek(s.members.find((m) => m.user_id === s.userId)!, today);
   const current = s.household.weekly_mode === 'due' && (week ?? inUse) === inUse;
   const row = s.accountBalances.find((b) => b.member_id === s.userId && b.week_start === (week ?? inUse));
 
@@ -263,7 +263,7 @@ export function BalanceSheet({ week, onClose }: { week?: ISODate; onClose: () =>
     run(async () => {
       const after = await saveBalance(cents, week);
       onClose();
-      toast(current && after.weeks > 0 ? `Balance saved. Your deposit is now ${formatCents(after.cents)}` : 'Balance saved');
+      toast(current ? `Balance saved. Your deposit is now ${formatCents(after.cents)}` : 'Balance saved');
     });
   };
 
