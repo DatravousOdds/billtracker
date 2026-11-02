@@ -58,8 +58,8 @@ describe('the deposit follows the pay window', () => {
   const fri = m('alex', '2026-10-30', 'weekly');
   const sh = sharesOf(fri, sam);
   const water = bill('water', 5000, '2026-10-29');
-  const three = [water, internet2(), rent];
-  function internet2() { return bill('internet', 6000, '2026-11-05'); }
+  const internetNov5 = bill('internet', 6000, '2026-11-05');
+  const three = [water, internetNov5, rent];
   it('an Oct 30 paycheck covers through Nov 6 until payday, then moves on', () => {
     for (const date of ['2026-10-30', '2026-11-02', '2026-11-05']) {
       expect(depositDue(fri, date, 'due', three, [], sh, [])).toMatchObject({ from: '2026-10-31', to: '2026-11-06', week: '2026-10-25', overdueCents: 2000, weekCents: [2400], cents: 4400 });
@@ -68,14 +68,14 @@ describe('the deposit follows the pay window', () => {
       .toMatchObject({ from: '2026-11-07', to: '2026-11-13', week: '2026-11-01', overdueCents: 0, weekCents: [17600], cents: 17600 });
   });
   it('a bill not due yet is never overdue', () => {
-    expect(depositDue(fri, '2026-11-02', 'due', [internet2(), rent], [], sh, [])).toMatchObject({ overdueCents: 0, weekCents: [2400], cents: 2400 });
+    expect(depositDue(fri, '2026-11-02', 'due', [internetNov5, rent], [], sh, [])).toMatchObject({ overdueCents: 0, weekCents: [2400], cents: 2400 });
   });
   it('a missed deposit carries its unpaid bills, not its paid ones', () => {
     expect(depositDue(fri, '2026-11-06', 'due', three, [], sh, [])).toMatchObject({ overdueCents: 4400, cents: 22000 });
     expect(depositDue(fri, '2026-11-06', 'due', three, [paid(water, '2026-11-03')], sh, [])).toMatchObject({ overdueCents: 2400, cents: 20000 });
   });
   it('paying a bill mid-window moves nothing', () => {
-    expect(depositDue(fri, '2026-11-05', 'due', three, [paid(internet2(), '2026-11-04'), paid(water, '2026-11-03')], sh, [])).toMatchObject({ cents: 4400 });
+    expect(depositDue(fri, '2026-11-05', 'due', three, [paid(internetNov5, '2026-11-04'), paid(water, '2026-11-03')], sh, [])).toMatchObject({ cents: 4400 });
   });
   it('every 2 weeks: the same deposit all window, at one paycheck\'s cap', () => {
     const bi = m('alex', '2026-10-30', 'biweekly', 10000);
