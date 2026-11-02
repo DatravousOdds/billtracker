@@ -3,8 +3,9 @@ import { supabase } from './supabase';
 import type {
   AccountBalance, ActivityEntry, Bill, BillRequest, Contribution, Household, ISODate, Member, Payment, Paycheck,
 } from './types';
-import { formatShort, todayISO } from './logic/dates';
-import { balanceEntry, depositDue, incomeShares, type DepositDue, type Share } from './logic/split';
+import { addDays, formatShort, todayISO } from './logic/dates';
+import { balanceEntry, depositDue, incomeShares, payWindow, type DepositDue, type Share } from './logic/split';
+import { paydays } from './logic/income';
 import { formatCents } from './logic/money';
 import { demoLog, demoState, isDemo, newId } from './demo';
 
@@ -135,6 +136,21 @@ export function shares(): Share[] {
 export function memberName(id: string | null): string {
   if (id === null) return 'Shared account';
   return getState().members.find((m) => m.user_id === id)?.display_name ?? 'Former partner';
+}
+
+/** The home tab's name. Pay as due with a pay window follows the paycheck, not the calendar week. */
+export function homeName(): string {
+  const s = getState();
+  const member = s.members.find((m) => m.user_id === s.userId);
+  return s.household.weekly_mode === 'due' && member && payWindow(member, todayISO()) ? 'This paycheck' : 'This week';
+}
+
+/** Pay as due: the payday a deposit saved under `week` is for. Null when that member isn't paid that week. */
+export function depositPayday(memberId: string, week: ISODate): ISODate | null {
+  const s = getState();
+  const member = s.members.find((m) => m.user_id === memberId);
+  if (s.household.weekly_mode !== 'due' || !member) return null;
+  return paydays(member, week, addDays(week, 6))[0] ?? null;
 }
 
 // ---------- Demo mode ----------

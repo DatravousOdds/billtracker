@@ -173,7 +173,7 @@ export function payWindow(member: Pick<Member, 'payday' | 'pay_frequency'>, date
 
 export interface DepositDue {
   cents: number;
-  /** How many weeks of their share this deposit covers (0 in a week without a payday). */
+  /** How many weeks of their share this deposit covers (smoothed: 0 in a week without a payday). */
   weeks: number;
   /** First day covered: the day after payday when paying as due, else the start of this week. */
   from: ISODate;
@@ -183,6 +183,8 @@ export interface DepositDue {
   overdueCents: number;
   /** Their share for each covered week, in order. */
   weekCents: number[];
+  /** The week this deposit is saved under. */
+  week: ISODate;
   /** Set in a week without a payday: when they're next paid. */
   nextPayday: ISODate | null;
   /** Set in a week without a payday they deposited for: the paycheck that already covers it. */
@@ -209,13 +211,12 @@ function periodOf(member: Member, date: ISODate): Period {
   return { pay: sunday, from: sunday, to: addDays(sunday, 6) };
 }
 
-/** The period this week's deposit is for, or null in a week between paydays. */
-function currentPeriod(member: Member, date: ISODate): Period | null {
-  const start = weekStart(date);
-  const pay = paydays(member, start, addDays(start, 6))[0];
-  if (pay) return periodOf(member, addDays(pay, 1));
-  // Every schedule pays within 62 days; no payday means a bad saved date, so keep asking weekly.
-  return paydays(member, addDays(start, 7), addDays(start, 68)).length ? null : periodOf(member, date);
+/** The paycheck `date` falls under, the same window as payWindow. Without a usable payday: this week, with Sunday as its payday. */
+function currentPeriod(member: Member, date: ISODate): Period {
+  const win = payWindow(member, date);
+  if (win) return { pay: addDays(win.from, -1), ...win };
+  const sunday = weekStart(date);
+  return { pay: sunday, from: sunday, to: addDays(sunday, 6) };
 }
 
 const shareOf = (member: Member, shares: Share[], cents: number) => {
@@ -270,15 +271,14 @@ function payAsDue(member: Member, period: Period, bills: Bill[], payments: Payme
   const spare = entry?.spare_cents ?? 0;
   const creditCents = spare < 0 ? -shareOf(member, shares, -spare) : Math.min(shareOf(member, shares, spare), asked);
   return {
-    cents: asked - creditCents, weeks: weekCents.length, from, to, overdueCents, weekCents,
+    cents: asked - creditCents, weeks: weekCents.length, from, to, overdueCents, weekCents, week: weekStart(pay),
     nextPayday: null, lastPayday: null, creditCents, spareCents: spare, balanceCents: entry?.amount_cents ?? null,
   };
 }
 
-/** The week whose balance is in use on `date`: this payday week, else their last payday's. No payday saved: this week. */
-export function balanceWeek(member: Member, date: ISODate): ISODate {
-  const start = weekStart(date);
-  return weekStart(paydays(member, start, addDays(start, 6))[0] ?? paydays(member, addDays(start, -62), start).at(-1) ?? start);
+/** The week the current paycheck's deposit and balance are saved under: its payday's. No payday saved: this week. */
+export function paycheckWeek(member: Member, date: ISODate): ISODate {
+  return weekStart(currentPeriod(member, date).pay);
 }
 
 /**
@@ -287,10 +287,10 @@ export function balanceWeek(member: Member, date: ISODate): ISODate {
  */
 export function balanceEntry(
   member: Member, cents: number, date: ISODate, bills: Bill[], payments: Payment[], shares: Share[], contributions: Contribution[],
-  balances: AccountBalance[], week = balanceWeek(member, date),
+  balances: AccountBalance[], week = paycheckWeek(member, date),
 ) {
   const old = balances.find((b) => b.member_id === member.user_id && b.week_start === week);
-  if (old && (week !== balanceWeek(member, date) || cents === old.amount_cents)) {
+  if (old && (week !== paycheckWeek(member, date) || cents === old.amount_cents)) {
     return { week_start: week, amount_cents: cents, spare_cents: old.spare_cents };
   }
   // 62 days ahead reaches the end of any period a deposit has been made for.
@@ -299,11 +299,12 @@ export function balanceEntry(
 }
 
 /**
- * What a partner should deposit in the week containing `date`.
- * Without a saved payday it's this week's share. With one, nothing is asked in weeks
- * without a payday. A payday week covers it and every week until the next payday week (smoothed),
- * or, paying as due, the bills due from the day after payday through the next payday, in 7-day
- * chunks (that day's pay may land after its bills), plus anything still unpaid by payday as overdue.
+ * What a partner should deposit on `date`.
+ * Paying as due: the paycheck it falls under (see payWindow), the same deposit until the next payday: the bills due
+ * from the day after payday through the next payday, in 7-day chunks (that day's pay may land after its bills), plus
+ * anything still unpaid by payday as overdue. Without a saved payday, this week, with Sunday as its payday.
+ * Smoothed: this week's share without a saved payday. With one, nothing is asked in weeks without a payday, and a
+ * payday week covers it and every week until the next payday week.
  * Capped at one paycheck, with the remaining share reported as shortCents.
  */
 export function depositDue(
@@ -328,10 +329,9 @@ export function depositDue(
     return { ...plan, cents, limitCents, shortCents: plan.cents - cents };
   };
   if (mode === 'due') {
-    const period = currentPeriod(member, date);
-    if (period) return capped(payAsDue(member, period, bills, payments, shares, contributions, balances), paydays(member, start, end).length ? PER_YEAR[member.pay_frequency] : 52);
+    return capped(payAsDue(member, currentPeriod(member, date), bills, payments, shares, contributions, balances), payWindow(member, date) ? PER_YEAR[member.pay_frequency] : 52);
   }
-  const noBalance = { creditCents: 0, spareCents: 0, balanceCents: null };
+  const noBalance = { creditCents: 0, spareCents: 0, balanceCents: null, week: start };
   const cents = share(start);
   const weekly = { cents, weeks: 1, from: start, to: end, overdueCents: 0, weekCents: [cents], nextPayday: null, lastPayday: null, ...noBalance };
   if (!member.payday) return capped(weekly, 52);
@@ -462,12 +462,11 @@ export function ledger(
 }
 
 /**
- * What each partner has left of this week's pay.
+ * What each partner has left of their current paycheck, or of this week's pay without a saved payday.
  * Pay as due: their pay minus their deposit, minus their personal bills due in the days that
- * deposit covers and any still unpaid from before them. Pay is the check logged in a payday week
- * or else an average paycheck, or an average week without a saved payday. A week without a payday
- * shows $0: no pay, no deposit, and the payday before it already counted its personal bills.
- * Smoothed: see leftover.
+ * deposit covers and any still unpaid from before them. Pay is the check logged in that payday's week
+ * or else an average paycheck, or an average week without a saved payday.
+ * Smoothed: this week, see leftover.
  */
 export function weekLeftover(
   date: ISODate,
@@ -479,22 +478,20 @@ export function weekLeftover(
   paychecks: Paycheck[] = [],
   balances: AccountBalance[] = [],
 ): Leftover[] {
-  const start = weekStart(date);
-  const end = addDays(start, 6);
-  if (mode === 'smoothed') return leftover(bills, payments, shares, start, end, 'week');
+  if (mode === 'smoothed') return leftover(bills, payments, shares, weekStart(date), addDays(weekStart(date), 6), 'week');
   return shares.map(({ member, income }) => {
     const due = depositDue(member, date, mode, bills, payments, shares, contributions, balances);
     const deposited = contributions
-      .filter((c) => c.member_id === member.user_id && c.week_start === start)
+      .filter((c) => c.member_id === member.user_id && c.week_start === due.week)
       .reduce((sum, c) => sum + c.amount_cents, 0);
     // A bill paid by payday lowers what's asked, but a deposit already made has left the paycheck.
     const sharedCents = Math.max(due.cents, deposited);
-    const logged = paychecks.filter((p) => p.member_id === member.user_id && p.paid_on >= start && p.paid_on <= end);
-    const incomeCents = due.weeks === 0 ? 0
-      : !paydays(member, start, end).length ? Math.round((income.monthlyCents * 12) / 52)
+    const end = addDays(due.week, 6);
+    const logged = paychecks.filter((p) => p.member_id === member.user_id && p.paid_on >= due.week && p.paid_on <= end);
+    const incomeCents = !payWindow(member, date) ? Math.round((income.monthlyCents * 12) / 52)
       : member.income_mode !== 'fixed' && logged.length ? logged.reduce((sum, p) => sum + p.amount_cents, 0)
       : Math.round((income.monthlyCents * 12) / PER_YEAR[member.pay_frequency]);
-    const personalCents = due.weeks === 0 ? 0 : [...occurrences(bills, payments, due.from, due.to), ...needsConfirming(bills, payments, addDays(due.from, -1))]
+    const personalCents = [...occurrences(bills, payments, due.from, due.to), ...needsConfirming(bills, payments, addDays(due.from, -1))]
       .filter((o) => o.bill.owner_id === member.user_id)
       .reduce((sum, o) => sum + cost(o), 0);
     return { member, incomeCents, sharedCents, personalCents, leftCents: incomeCents - sharedCents - personalCents };
