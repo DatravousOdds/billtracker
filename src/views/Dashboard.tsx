@@ -101,7 +101,7 @@ export function DashboardView() {
       {noIncome && s.household.split_percent === null && <div className="card note">Add income on the <a href="#/income">Income</a> tab so the split reflects what each of you earns. Until then it's 50/50.</div>}
 
       {!smoothed && me && !win && (
-        <div className="card note">Set your payday or log your last paycheck on the <a href="#/income">Income</a> tab to see the bills it covers.</div>
+        <div className="card note">Set your next payday on the <a href="#/income">Income</a> tab to see the bills it covers.</div>
       )}
 
       <div className="card hero">
