@@ -100,6 +100,10 @@ export function DashboardView() {
       {onlyOne && <div className="card note">Your partner hasn't joined yet. Share invite code <strong>{s.household.invite_code}</strong> (also in Settings).</div>}
       {noIncome && s.household.split_percent === null && <div className="card note">Add income on the <a href="#/income">Income</a> tab so the split reflects what each of you earns. Until then it's 50/50.</div>}
 
+      {!smoothed && me && !win && (
+        <div className="card note">Set your payday or log your last paycheck on the <a href="#/income">Income</a> tab to see the bills it covers.</div>
+      )}
+
       <div className="card hero">
         <div className="hero-head">
           <div className="eyebrow">{win ? `Total due through ${formatShort(win.to)}` : <>This week · {formatShort(plan.weekStart)} – {formatShort(plan.weekEnd)}</>}</div>

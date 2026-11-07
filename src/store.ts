@@ -5,7 +5,7 @@ import type {
 } from './types';
 import { addDays, formatShort, todayISO } from './logic/dates';
 import { balanceEntry, depositDue, incomeShares, payWindow, type DepositDue, type Share } from './logic/split';
-import { paydays } from './logic/income';
+import { paydays, withPayday } from './logic/income';
 import { formatCents } from './logic/money';
 import { demoLog, demoState, isDemo, newId } from './demo';
 
@@ -130,7 +130,11 @@ async function reload() {
 
 export function shares(): Share[] {
   const s = getState();
-  return incomeShares(s.members, s.paychecks, todayISO(), s.household);
+  const today = todayISO();
+  const members = s.household.weekly_mode === 'due'
+    ? s.members.map((member) => withPayday(member, s.paychecks, today))
+    : s.members;
+  return incomeShares(members, s.paychecks, today, s.household);
 }
 
 export function memberName(id: string | null): string {
@@ -142,7 +146,9 @@ export function memberName(id: string | null): string {
 export function homeName(): string {
   const s = getState();
   const member = s.members.find((m) => m.user_id === s.userId);
-  return s.household.weekly_mode === 'due' && member && payWindow(member, todayISO()) ? 'This paycheck' : 'This week';
+  const today = todayISO();
+  return s.household.weekly_mode === 'due' && member && payWindow(withPayday(member, s.paychecks, today), today)
+    ? 'This paycheck' : 'This week';
 }
 
 /** Pay as due: the payday a deposit saved under `week` is for. Null when that member isn't paid that week. */
@@ -150,7 +156,7 @@ export function depositPayday(memberId: string, week: ISODate): ISODate | null {
   const s = getState();
   const member = s.members.find((m) => m.user_id === memberId);
   if (s.household.weekly_mode !== 'due' || !member) return null;
-  return paydays(member, week, addDays(week, 6))[0] ?? null;
+  return paydays(withPayday(member, s.paychecks, todayISO()), week, addDays(week, 6))[0] ?? null;
 }
 
 // ---------- Demo mode ----------
@@ -303,7 +309,8 @@ export async function saveBalance(cents: number, week?: ISODate): Promise<Deposi
   const s = getState();
   const memberId = s.userId;
   const today = todayISO();
-  const member = s.members.find((m) => m.user_id === memberId)!;
+  const savedMember = s.members.find((m) => m.user_id === memberId)!;
+  const member = s.household.weekly_mode === 'due' ? withPayday(savedMember, s.paychecks, today) : savedMember;
   const entry = balanceEntry(member, cents, today, s.bills, s.payments, shares(), s.contributions, s.accountBalances, week);
   if (isDemo) {
     const old = s.accountBalances.find((b) => b.member_id === memberId && b.week_start === entry.week_start);
@@ -319,7 +326,9 @@ export async function saveBalance(cents: number, week?: ISODate): Promise<Deposi
     await reload();
   }
   const now = getState();
-  return depositDue(now.members.find((m) => m.user_id === memberId) ?? member, today, now.household.weekly_mode, now.bills, now.payments, shares(), now.contributions, now.accountBalances);
+  const updatedShares = shares();
+  const updated = updatedShares.find(({ member }) => member.user_id === memberId)?.member ?? member;
+  return depositDue(updated, today, now.household.weekly_mode, now.bills, now.payments, updatedShares, now.contributions, now.accountBalances);
 }
 
 export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode' | 'paycheck_average' | 'payday'>>) {

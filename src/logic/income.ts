@@ -56,6 +56,15 @@ export function monthlyIncome(member: Member, paychecks: Paycheck[], today: ISOD
   };
 }
 
+/** Use a logged paycheck as the schedule anchor when no payday was saved. */
+export function withPayday(member: Member, paychecks: Paycheck[], today: ISODate): Member {
+  if (member.payday) return member;
+  const payday = paychecks.reduce<ISODate | null>((latest, check) =>
+    check.member_id === member.user_id && check.paid_on <= today && (!latest || check.paid_on > latest)
+      ? check.paid_on : latest, null);
+  return payday ? { ...member, payday } : member;
+}
+
 /**
  * A member's paydays between `from` and `to` (both inclusive), worked out from their one saved payday.
  * Empty if they haven't saved one.

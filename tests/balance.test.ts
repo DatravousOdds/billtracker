@@ -1,3 +1,4 @@
+import { withPayday } from '../src/logic/income';
 import { describe, expect, it } from 'vitest';
 import { balanceEntry, paycheckWeek, depositDue, incomeShares, type Share } from '../src/logic/split';
 import type { AccountBalance, Bill, Contribution, Member, Payment } from '../src/types';
@@ -66,6 +67,18 @@ describe('the deposit follows the pay window', () => {
     }
     expect(depositDue(fri, '2026-11-06', 'due', three, [], sh, [dep('alex', '2026-10-25', 4400)]))
       .toMatchObject({ from: '2026-11-07', to: '2026-11-13', week: '2026-11-01', overdueCents: 0, weekCents: [17600], cents: 17600 });
+  });
+  it('uses a logged Friday paycheck and keeps its deposit and balance across Sunday', () => {
+    const date = '2026-11-08';
+    const member = withPayday({ ...fri, payday: null }, [
+      { id: 'future', household_id: 'h', member_id: 'alex', paid_on: '2026-11-10', amount_cents: 100000 },
+      { id: 'check', household_id: 'h', member_id: 'alex', paid_on: '2026-11-06', amount_cents: 100000 },
+    ], date);
+    const contribution = dep('alex', '2026-11-01', 3000);
+    const row = enter(member, 8000, date, [rent], [], sh, [contribution]);
+    expect(row.week_start).toBe(contribution.week_start);
+    expect(depositDue(member, date, 'due', [rent], [], sh, [contribution], [row]))
+      .toMatchObject({ from: '2026-11-07', to: '2026-11-13', week: contribution.week_start, balanceCents: 8000 });
   });
   it('a bill not due yet is never overdue', () => {
     expect(depositDue(fri, '2026-11-02', 'due', [internetNov5, rent], [], sh, [])).toMatchObject({ overdueCents: 0, weekCents: [2400], cents: 2400 });
