@@ -58,6 +58,15 @@ create table if not exists deposit_credit_private.checkpoints (
   revision bigint not null
 );
 
+create table if not exists deposit_credit_private.confirmations (
+  household_id uuid not null,
+  member_id uuid not null,
+  confirmation_id uuid not null,
+  period_start date not null,
+  amount_cents bigint not null,
+  primary key (household_id, member_id, confirmation_id)
+);
+
 create or replace function deposit_credit_private.revision(home uuid)
 returns bigint language sql set search_path = '' as $$
   select greatest(
@@ -94,15 +103,28 @@ declare
   new_home uuid := (after_row ->> household_key)::uuid;
   old_id uuid := (before_row ->> id_key)::uuid;
   new_id uuid := (after_row ->> id_key)::uuid;
+  home uuid;
 begin
   if before_row is not distinct from after_row then return null; end if;
-  -- Journaling must not take a parent row lock after a child row is locked.
+  -- Writers can overlap. Workers take the matching exclusive lock without
+  -- waiting on app rows, so a writer holding a child row cannot deadlock them.
+  for home in select distinct h from unnest(array[old_home, new_home]) as homes(h)
+    where h is not null order by h
+  loop
+    perform pg_advisory_xact_lock_shared(hashtextextended(home::text, 8624));
+  end loop;
+
   if tg_table_name = 'households' and tg_op = 'DELETE' then
     delete from deposit_credit_private.changes where household_id = old_home;
     delete from deposit_credit_private.settlements where household_id = old_home;
     delete from deposit_credit_private.claims where household_id = old_home;
     delete from deposit_credit_private.checkpoints where household_id = old_home;
+    delete from deposit_credit_private.confirmations where household_id = old_home;
     return null;
+  end if;
+
+  if tg_table_name = 'members' and old_home is not null and old_home is distinct from new_home then
+    delete from deposit_credit_private.confirmations where household_id = old_home and member_id = old_id;
   end if;
 
   if old_home is not null and exists (select 1 from public.households where id = old_home) then
@@ -135,7 +157,7 @@ declare
 begin
   if home is null then return null; end if;
   -- Freeze journal appends while reading the matching MVCC rows.
-  lock table deposit_credit_private.changes in share mode;
+  perform pg_advisory_xact_lock(hashtextextended(home::text, 8624));
   if not exists (select 1 from public.members where user_id = caller and household_id = home) then
     return null;
   end if;
@@ -169,9 +191,8 @@ create or replace function public.save_deposit_credit(
 )
 returns boolean language plpgsql security definer set search_path = '' set lock_timeout = '5s' as $$
 begin
-  -- This lock must never be followed by a lock on an app row. The household
-  -- delete trigger cleans up the private tables under the journal write lock.
-  lock table deposit_credit_private.changes in share row exclusive mode;
+  -- Never wait for an app row while holding the exclusive journal lock.
+  perform pg_advisory_xact_lock(hashtextextended(home::text, 8624));
   if not exists (select 1 from public.members where user_id = caller and household_id = home) then
     raise exception 'Not allowed';
   end if;
@@ -215,8 +236,57 @@ begin
 end;
 $$;
 
-revoke all on function public.deposit_credit_inputs(uuid), public.save_deposit_credit(uuid, uuid, bigint, date, jsonb, jsonb)
+create or replace function public.confirm_deposit_credit(
+  caller uuid, home uuid, expected_revision bigint, quote_date date,
+  quoted_period date, confirmation uuid, amount bigint, quote_valid boolean
+)
+returns text language plpgsql security definer set search_path = '' as $$
+declare
+  receipt deposit_credit_private.confirmations%rowtype;
+begin
+  if amount is null or amount <= 0 or quoted_period is null or confirmation is null then
+    return 'invalid';
+  end if;
+
+  -- Take the contribution's FK locks first, without waiting while holding
+  -- any other lock. App writers may already hold a row and need the journal.
+  begin
+    perform 1 from public.households where id = home for key share nowait;
+    perform 1 from public.members where user_id = caller and household_id = home for key share nowait;
+    if not found then return 'forbidden'; end if;
+  exception when lock_not_available then
+    return 'busy';
+  end;
+  if not pg_try_advisory_xact_lock(hashtextextended(home::text, 8624)) then
+    return 'busy';
+  end if;
+
+  select * into receipt from deposit_credit_private.confirmations
+  where household_id = home and member_id = caller and confirmation_id = confirmation;
+  if found then
+    return case when receipt.period_start = quoted_period and receipt.amount_cents = amount
+      then 'saved' else 'invalid' end;
+  end if;
+
+  if quote_valid is distinct from true
+    or quote_date is distinct from (clock_timestamp() at time zone 'UTC')::date
+    or expected_revision is distinct from deposit_credit_private.revision(home)
+  then
+    return 'stale';
+  end if;
+
+  insert into public.contributions (household_id, member_id, week_start, amount_cents)
+  values (home, caller, quoted_period - extract(dow from quoted_period)::integer, amount);
+  insert into deposit_credit_private.confirmations (household_id, member_id, confirmation_id, period_start, amount_cents)
+  values (home, caller, confirmation, quoted_period, amount);
+  return 'saved';
+end;
+$$;
+
+revoke all on function public.deposit_credit_inputs(uuid), public.save_deposit_credit(uuid, uuid, bigint, date, jsonb, jsonb),
+  public.confirm_deposit_credit(uuid, uuid, bigint, date, date, uuid, bigint, boolean)
   from public, anon, authenticated;
-grant execute on function public.deposit_credit_inputs(uuid), public.save_deposit_credit(uuid, uuid, bigint, date, jsonb, jsonb)
+grant execute on function public.deposit_credit_inputs(uuid), public.save_deposit_credit(uuid, uuid, bigint, date, jsonb, jsonb),
+  public.confirm_deposit_credit(uuid, uuid, bigint, date, date, uuid, bigint, boolean)
   to service_role;
 commit;

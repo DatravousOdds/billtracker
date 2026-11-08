@@ -206,8 +206,7 @@ describe('split', () => {
     const payment = { id: 'p', household_id: 'h', bill_id: 'power', due_date: '2026-10-12',
       paid_on: '2026-10-14', paid_by: a.user_id, amount_cents: 8000 };
     const balance = (member: Member, prior = 0, deposited = 0) => applyDepositCredit(
-      depositDue(member, '2026-10-15', mode, bills, [payment], equal, [],
-        { from: period.from, through: '2026-10-15' }).cents,
+      depositDue(member, '2026-10-15', mode, bills, [payment], equal, [], true).cents,
       deposited,
       directDepositPayments(member.user_id, bills, [payment], period.from, '2026-10-15'),
       prior,
@@ -216,6 +215,28 @@ describe('split', () => {
     expect(balance(b)).toMatchObject({ remainingCents: 10000, paidDirectCents: 0, carryCents: 0 });
     expect(balance(a, 0, 5000)).toMatchObject({ remainingCents: 0, appliedCreditCents: 5000, carryCents: 3000 });
     expect(applyDepositCredit(10000, 0, 0, 3000)).toMatchObject({ remainingCents: 7000, carryCents: 0 });
+  });
+
+  it('keeps an early direct payment in each member’s due window without repeating it overdue', () => {
+    const biweekly = { ...b, pay_frequency: 'biweekly' as const, payday: '2026-10-16' };
+    const equal = incomeShares([a, biweekly], [], '2026-10-20', { split_member: a.user_id, split_percent: 50 });
+    const bills = [bill('power', 8000, 'once', '2026-10-20')];
+    const payment = { id: 'p', household_id: 'h', bill_id: 'power', due_date: '2026-10-20',
+      paid_on: '2026-10-10', paid_by: a.user_id, amount_cents: 8000 };
+    const base = (member: Member, date: string) => depositDue(member, date, 'due', bills, [payment], equal, [], true).cents;
+    const early = directDepositPayments(a.user_id, bills, [payment], '2026-10-04', '2026-10-10');
+    const carry = applyDepositCredit(base(a, '2026-10-10'), 0, early, 0).carryCents;
+    expect(carry).toBe(8000);
+    expect(base(a, '2026-10-20')).toBe(4000);
+    expect(base(biweekly, '2026-10-16')).toBe(4000);
+    expect(applyDepositCredit(base(a, '2026-10-20'), 0, 0, carry)).toMatchObject({
+      remainingCents: 0, appliedCreditCents: 4000, carryCents: 4000,
+    });
+    expect(base(a, '2026-10-25')).toBe(0);
+    expect(base(biweekly, '2026-10-30')).toBe(0);
+    const late = { ...payment, paid_on: '2026-10-25' };
+    expect(depositDue(a, '2026-10-25', 'due', bills, [late], equal, [], true).cents).toBe(0);
+    expect(depositDue(biweekly, '2026-10-30', 'due', bills, [late], equal, [], true).cents).toBe(0);
   });
 
   it('assigns payments on payday to the new period, falling back to Sunday without a schedule', () => {

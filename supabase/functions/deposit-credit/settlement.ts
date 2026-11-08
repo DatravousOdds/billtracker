@@ -142,7 +142,7 @@ export function calculateSettlements(inputs: SettlementInputs) {
     const paymentList = state.payments ?? [];
     const shareList = incomeShares(state.members ?? [], state.paychecks ?? [], through, household);
     const target = depositDue(scheduled, from, household.weekly_mode, billList, paymentList, shareList,
-      state.contributions ?? [], { from, through });
+      state.contributions ?? [], true);
     const deposits = (state.contributions ?? [])
       .filter((c) => c.member_id === scheduled.user_id && c.week_start === weekStart(from))
       .reduce((sum, c) => sum + c.amount_cents, 0);

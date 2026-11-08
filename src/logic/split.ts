@@ -218,23 +218,21 @@ export function depositDue(
   payments: Payment[],
   shares: Share[],
   contributions: Contribution[],
-  creditPeriod?: { from: ISODate; through: ISODate },
+  retainDirectObligations = false,
 ): DepositDue {
-  const direct = (payment: Payment | undefined): payment is Payment =>
-    !!payment && payment.paid_by !== null && !!creditPeriod
-    && payment.paid_on >= creditPeriod.from && payment.paid_on <= creditPeriod.through;
+  // Direct payments keep the shared obligation in its due window. Only
+  // unpaid occurrences may reappear later in the overdue calculation.
+  const direct = (payment: Payment) => retainDirectObligations && payment.paid_by !== null;
   const shared = (occ: Occurrence[]) => occ
     .filter((o) => o.bill.owner_id === null && (!o.payment || direct(o.payment)))
     .reduce((sum, o) => sum + (o.payment?.amount_cents ?? o.bill.amount_cents), 0);
   const i = shares.findIndex((s) => s.member.user_id === member.user_id);
   const mine = (total: number) => i < 0 ? 0 : splitByRatio(total, shares.map((s) => s.ratio))[i];
-  const late = (through: ISODate) => occurrences(bills, payments, addDays(through, -60), through)
-    .filter((o) => !o.bill.autopay || direct(o.payment));
   // Overdue bills belong to the first week only, or a multi-week deposit would count them again.
   const share = (d: ISODate, overdue = true) => {
-    if (mode === 'due' && creditPeriod) {
+    if (mode === 'due' && retainDirectObligations) {
       return mine(shared(occurrences(bills, payments, d, addDays(d, 6)))
-        + (overdue ? shared(late(addDays(d, -1))) : 0));
+        + (overdue ? shared(needsConfirming(bills, payments, addDays(d, -1))) : 0));
     }
     return weekPlan(d, mode, bills, payments, shares, overdue).perMember[i]?.sharedCents ?? 0;
   };
@@ -261,7 +259,7 @@ export function depositDue(
     // Pay as due: the day after payday through the next payday, in 7-day chunks; unpaid by payday is overdue.
     from = addDays(pay, 1);
     to = paydays(member, from, addDays(pay, 62))[0] ?? addDays(pay, 7);
-    overdueCents = mine(shared(creditPeriod ? late(pay) : needsConfirming(bills, payments, pay)));
+    overdueCents = mine(shared(needsConfirming(bills, payments, pay)));
     for (let d = from; d <= to; d = addDays(d, 7)) {
       weekCents.push(mine(shared(occurrences(bills, payments, d, addDays(d, 6) < to ? addDays(d, 6) : to))));
     }

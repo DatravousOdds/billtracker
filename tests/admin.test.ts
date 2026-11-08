@@ -315,6 +315,38 @@ describe('custom-split.sql', () => {
 });
 
 describe('deposit credit history', () => {
+  it('records exactly one editable deposit and rejects a stale or reused confirmation', async () => {
+    const home = await household('Alex', 'Sam');
+    const bill = await addBill(home.ids[0], home.hid);
+    const id = crypto.randomUUID();
+    const sql = `select public.confirm_deposit_credit($1, $2, $3, (now() at time zone 'UTC')::date,
+      '2026-01-07', $4, $5, $6) as result`;
+    await expect(db.query(sql, [home.ids[0], home.hid, '0', id, 5375, true])).rejects.toThrow(/permission denied/);
+
+    const asWorker = async () => {
+      await as(null);
+      await db.exec('set role service_role');
+    };
+    const revision = async () => (await rows<{ revision: string }>(
+      "select public.deposit_credit_inputs($1)->>'revision' as revision", [home.ids[0]]))[0].revision;
+    const confirm = (version: string, id: string, amount = 5375, valid = true) => rows(sql,
+      [home.ids[0], home.hid, version, id, amount, valid]);
+    await asWorker();
+    const old = await revision();
+    await as(home.ids[0]);
+    await db.query('update bills set amount_cents = 9000 where id = $1', [bill]);
+    await asWorker();
+    expect(await confirm(old, id)).toEqual([{ result: 'stale' }]);
+    const current = await revision();
+    expect(await confirm(current, id)).toEqual([{ result: 'saved' }]);
+    expect(await confirm(current, id, 5375, false)).toEqual([{ result: 'saved' }]);
+    expect(await confirm(current, id, 5400)).toEqual([{ result: 'invalid' }]);
+    expect(await confirm(current, crypto.randomUUID())).toEqual([{ result: 'stale' }]);
+    await as(home.ids[0]);
+    expect(await rows('select member_id, amount_cents::int, week_start::text from contributions'))
+      .toEqual([{ member_id: home.ids[0], amount_cents: 5375, week_start: '2026-01-04' }]);
+  });
+
   it('captures old calculation inputs without exposing them to clients', async () => {
     const home = await household('Alex', 'Sam');
     const id = await addBill(home.ids[0], home.hid);

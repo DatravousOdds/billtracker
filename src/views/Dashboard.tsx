@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { addDays, addMonths, formatShort, todayISO, toDate, weekStart } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
 import { depositDue, ledger, leftover, needsConfirming, weekPlan, type DepositCredit, type Leftover } from '../logic/split';
-import { addContribution, decideRequest, memberName, shares } from '../store';
+import { addContribution, decideRequest, load, memberName, shares } from '../store';
 import type { BillRequest } from '../types';
 import { useAppState, useBusy } from '../ui/hooks';
 import { AsyncButton, OccurrenceRow, You, pct } from '../ui/parts';
@@ -11,19 +11,22 @@ import { toast } from '../ui/toast';
 import { isDemo } from '../demo';
 import { supabase } from '../supabase';
 
-type CreditQuote = DepositCredit & { baseCents: number; periodStart: string; nextPeriodStart: string };
+type CreditQuote = DepositCredit & { baseCents: number; periodStart: string; nextPeriodStart: string; fallback?: true };
+
+type CreditQuotes = { asOf: string; revision: string; members: Record<string, CreditQuote> };
+type QuoteConfirmation = { periodStart: string; quoteDate: string; revision: string };
 
 const depositCreditEnabled = import.meta.env.VITE_DEPOSIT_CREDIT === 'true' && !isDemo;
 async function depositCreditQuotes() {
-  const { data, error } = await supabase.functions.invoke<{ members: Record<string, CreditQuote> }>('deposit-credit');
-  if (error || !data?.members) throw new Error('Could not load deposit credit');
-  return data.members;
+  const { data, error } = await supabase.functions.invoke<CreditQuotes>('deposit-credit');
+  if (error || !data?.members || !data.revision) throw new Error('Could not load deposit credit');
+  return data;
 }
 
 export function DashboardView() {
   const s = useAppState();
-  const [deposit, setDeposit] = useState<{ amount: number; week: string; quote?: CreditQuote } | null>(null);
-  const [credit, setCredit] = useState<{ state: typeof s; date: string; quotes?: Record<string, CreditQuote> }>();
+  const [deposit, setDeposit] = useState<{ amount: number; week: string; quote?: QuoteConfirmation } | null>(null);
+  const [credit, setCredit] = useState<{ state: typeof s; date: string; quotes?: CreditQuotes }>();
   const [retry, setRetry] = useState(0);
   const today = todayISO();
   useEffect(() => {
@@ -117,7 +120,11 @@ export function DashboardView() {
           {plan.perMember.map((p) => {
             const isMe = p.member.user_id === s.userId;
             const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh, s.contributions);
-            const quote = quotes?.[p.member.user_id];
+            const quote = quotes?.members[p.member.user_id];
+            const confirmation = quote && quotes && {
+              periodStart: quote.periodStart, quoteDate: new Date(quotes.asOf).toISOString().slice(0, 10),
+              revision: quotes.revision,
+            };
             const canDeposit = quote ? weekStart(quote.periodStart) === plan.weekStart : due.weeks > 0;
             const done = quote?.depositedCents ?? deposited(p.member.user_id);
             const remaining = quote ? quote.remainingCents : Math.max(0, due.cents - done);
@@ -145,11 +152,11 @@ export function DashboardView() {
                       setRetry(retry + 1);
                     }}>Try again</button>
                   </div>
-                  : <div className="person-amt">{formatCents(quote ? (canDeposit ? remaining : 0) : due.cents)}</div>}
+                  : <div className="person-amt">{formatCents(quote && !quote.fallback ? (canDeposit ? remaining : 0) : due.cents)}</div>}
                 {due.weeks === 0 ? <div className="muted small">{due.lastPayday ? `Covered by your ${formatShort(due.lastPayday)} pay` : 'Nothing due until payday'}{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>
                   : due.weeks === 1 && due.from === plan.weekStart ? <div className="muted small">This week</div>
                   : <div className="muted small">Covers {formatShort(due.from)} – {formatShort(due.to)}</div>}
-                {!quote && rows.length > 1 && (
+                {(!quote || quote.fallback) && rows.length > 1 && (
                   <div className="split-rows">
                     {rows.map(([label, c]) => <div key={label}><span>{label}</span><span>{formatCents(c)}</span></div>)}
                   </div>
@@ -166,9 +173,9 @@ export function DashboardView() {
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
                 {done > 0 && remaining > 0 && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
-                {!canDeposit || creditLoading || creditUnavailable ? null
+                {!canDeposit || creditLoading || creditUnavailable || (depositCreditEnabled && !confirmation) ? null
                   : remaining === 0 ? <span className="pill paid">{quote?.appliedCreditCents ? '✓ Covered by credit and deposits' : done > 0 ? '✓ Deposited' : 'Nothing due'}</span>
-                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit({ amount: remaining, week: plan.weekStart, quote })}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
+                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit({ amount: remaining, week: plan.weekStart, quote: confirmation })}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
                   : <span className="badge person-status">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
                 {last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
               </div>
@@ -224,15 +231,21 @@ export function DashboardView() {
       </a>
 
       {deposit && <DepositSheet amountCents={deposit.amount} weekStart={deposit.week} onClose={() => setDeposit(null)}
-        refresh={depositCreditEnabled ? async () => {
-          const updated = await depositCreditQuotes();
-          const latest = updated[s.userId];
-          if (latest?.periodStart !== deposit.quote?.periodStart || latest?.remainingCents !== deposit.quote?.remainingCents) {
-            setCredit({ state: s, date: today, quotes: updated });
+        confirm={deposit.quote ? async (amount, confirmationId) => {
+          const { data, error } = await supabase.functions.invoke<{ status: string }>('deposit-credit', {
+            body: { ...deposit.quote, confirmationId, amountCents: amount },
+          });
+          if (error || !data) throw new Error('Could not confirm the deposit. Try again.');
+          if (data.status === 'busy') throw new Error('Your deposit is being updated. Try again.');
+          setCredit(undefined);
+          setRetry((value) => value + 1);
+          if (data.status === 'stale') {
             setDeposit(null);
             toast('Your deposit estimate changed. Review the new amount.', 'error');
             return false;
           }
+          if (data.status !== 'saved') throw new Error('Could not confirm the deposit. Try again.');
+          void load(s.userId, s.household.id).catch(console.error);
           return true;
         } : undefined} />}
     </section>
@@ -268,17 +281,22 @@ function RequestCard({ r }: { r: BillRequest }) {
   );
 }
 
-function DepositSheet({ amountCents, weekStart, onClose, refresh }: {
-  amountCents: number; weekStart: string; onClose: () => void; refresh?: () => Promise<boolean>;
+function DepositSheet({ amountCents, weekStart, onClose, confirm }: {
+  amountCents: number; weekStart: string; onClose: () => void; confirm?: (amount: number, id: string) => Promise<boolean>;
 }) {
   const [busy, run] = useBusy();
+  const attempt = useRef<{ amount: number; id: string } | null>(null);
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const amount = parseDollars(String(new FormData(e.currentTarget).get('amount')));
-    if (amount === null) return toast('Enter an amount like 120.50', 'error');
+    if (amount === null || (confirm && amount <= 0)) return toast('Enter an amount like 120.50', 'error');
     run(async () => {
-      if (refresh && !(await refresh())) return;
-      await addContribution(weekStart, amount);
+      if (confirm) {
+        if (attempt.current?.amount !== amount) attempt.current = { amount, id: crypto.randomUUID() };
+        if (!(await confirm(amount, attempt.current.id))) return;
+      } else {
+        await addContribution(weekStart, amount);
+      }
       onClose();
       toast('Deposit saved');
     });
