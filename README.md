@@ -66,6 +66,17 @@ Access is enforced in the database (`is_admin()` / `is_staff()`), so the role on
 
 `npm run build` creates a static site in `dist/`. Host it on Netlify, Vercel, Cloudflare Pages, or GitHub Pages, and set the two `VITE_SUPABASE_*` environment variables in the host's settings. Then, in Supabase, go to **Authentication → URL Configuration** and add your site URL.
 
+### Deposit credit rollout
+
+Run `supabase/deposit-credit.sql` in the SQL Editor after the other schema scripts.
+Deploy the `deposit-credit` Edge Function with gateway JWT verification disabled
+(the handler checks the caller's token with Supabase Auth before making any database calls).
+Set `VITE_DEPOSIT_CREDIT=true` in the web build environment only after verifying the function
+in the target project. The rollout begins with each member's next pay period. Periods
+close at midnight UTC, and the worker reconstructs close-time inputs for periods
+that ended while nobody used the app.
+
+
 On each phone, open the site and choose **Add to Home Screen** so it opens like an app.
 
 ## iPhone app (Capacitor)

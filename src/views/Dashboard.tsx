@@ -1,18 +1,44 @@
-import { useState, type FormEvent } from 'react';
-import { addDays, addMonths, formatShort, todayISO, toDate } from '../logic/dates';
+import { useEffect, useState, type FormEvent } from 'react';
+import { addDays, addMonths, formatShort, todayISO, toDate, weekStart } from '../logic/dates';
 import { formatCents, parseDollars, centsToInput } from '../logic/money';
-import { depositDue, ledger, leftover, needsConfirming, weekPlan, type Leftover } from '../logic/split';
+import { depositDue, ledger, leftover, needsConfirming, weekPlan, type DepositCredit, type Leftover } from '../logic/split';
 import { addContribution, decideRequest, memberName, shares } from '../store';
 import type { BillRequest } from '../types';
 import { useAppState, useBusy } from '../ui/hooks';
 import { AsyncButton, OccurrenceRow, You, pct } from '../ui/parts';
 import { Sheet } from '../ui/Sheet';
 import { toast } from '../ui/toast';
+import { isDemo } from '../demo';
+import { supabase } from '../supabase';
+
+type CreditQuote = DepositCredit & { baseCents: number; periodStart: string; nextPeriodStart: string };
+
+const depositCreditEnabled = import.meta.env.VITE_DEPOSIT_CREDIT === 'true' && !isDemo;
+async function depositCreditQuotes() {
+  const { data, error } = await supabase.functions.invoke<{ members: Record<string, CreditQuote> }>('deposit-credit');
+  if (error || !data?.members) throw new Error('Could not load deposit credit');
+  return data.members;
+}
 
 export function DashboardView() {
   const s = useAppState();
-  const [deposit, setDeposit] = useState<number | null>(null);
+  const [deposit, setDeposit] = useState<{ amount: number; week: string; quote?: CreditQuote } | null>(null);
+  const [credit, setCredit] = useState<{ state: typeof s; date: string; quotes?: Record<string, CreditQuote> }>();
+  const [retry, setRetry] = useState(0);
   const today = todayISO();
+  useEffect(() => {
+    if (!depositCreditEnabled) return;
+    let active = true;
+    depositCreditQuotes().then(
+      (quotes) => { if (active) setCredit({ state: s, date: today, quotes }); },
+      () => { if (active) setCredit({ state: s, date: today }); },
+    );
+    return () => { active = false; };
+  }, [s, today, retry]);
+  const currentCredit = credit?.state === s && credit.date === today ? credit : undefined;
+  const quotes = currentCredit?.quotes;
+  const creditLoading = depositCreditEnabled && !currentCredit;
+  const creditUnavailable = depositCreditEnabled && !creditLoading && !quotes;
   const sh = shares();
   const plan = weekPlan(today, s.household.weekly_mode, s.bills, s.payments, sh);
   // Bills that came due and nobody has confirmed paying yet. Shown first, and left out
@@ -91,7 +117,10 @@ export function DashboardView() {
           {plan.perMember.map((p) => {
             const isMe = p.member.user_id === s.userId;
             const due = depositDue(p.member, today, plan.mode, s.bills, s.payments, sh, s.contributions);
-            const done = deposited(p.member.user_id);
+            const quote = quotes?.[p.member.user_id];
+            const canDeposit = quote ? weekStart(quote.periodStart) === plan.weekStart : due.weeks > 0;
+            const done = quote?.depositedCents ?? deposited(p.member.user_id);
+            const remaining = quote ? quote.remainingCents : Math.max(0, due.cents - done);
             // contributions are sorted newest first, so the first match is the partner's latest.
             const last = !isMe ? s.contributions.find((c) => c.member_id === p.member.user_id) : undefined;
             const rows = [
@@ -109,21 +138,37 @@ export function DashboardView() {
                 </div>
                 <div className="eyebrow">To deposit</div>
                 {/* The whole deposit: on a payday week it covers until the next payday (pay as due: starting next week). */}
-                <div className="person-amt">{formatCents(due.cents)}</div>
+                {creditLoading ? <div className="muted small">Checking deposit credit…</div>
+                  : creditUnavailable ? <div className="muted small" role="status">
+                    Deposit credit is temporarily unavailable. <button type="button" className="pill" onClick={() => {
+                      setCredit(undefined);
+                      setRetry(retry + 1);
+                    }}>Try again</button>
+                  </div>
+                  : <div className="person-amt">{formatCents(quote ? (canDeposit ? remaining : 0) : due.cents)}</div>}
                 {due.weeks === 0 ? <div className="muted small">{due.lastPayday ? `Covered by your ${formatShort(due.lastPayday)} pay` : 'Nothing due until payday'}{due.nextPayday &&<><br />Next payday {formatShort(due.nextPayday)}</>}</div>
                   : due.weeks === 1 && due.from === plan.weekStart ? <div className="muted small">This week</div>
                   : <div className="muted small">Covers {formatShort(due.from)} – {formatShort(due.to)}</div>}
-                {rows.length > 1 && (
+                {!quote && rows.length > 1 && (
                   <div className="split-rows">
                     {rows.map(([label, c]) => <div key={label}><span>{label}</span><span>{formatCents(c)}</span></div>)}
                   </div>
                 )}
+                {quote && (quote.paidDirectCents > 0 || quote.priorCreditCents > 0) && (
+                  <div className="split-rows">
+                    <div><span>Shared bills deposit</span><span>{formatCents(quote.baseCents)}</span></div>
+                    {quote.paidDirectCents > 0 && <div><span>Paid from {isMe ? 'your' : 'their'} account</span><span>{formatCents(quote.paidDirectCents)}</span></div>}
+                    {quote.priorCreditCents > 0 && <div><span>Credit carried from last period</span><span>{formatCents(quote.priorCreditCents)}</span></div>}
+                    <div><span>Credit applied to this deposit</span><span>−{formatCents(quote.appliedCreditCents)}</span></div>
+                    {quote.carryCents > 0 && <div><strong>Credit for the next deposit</strong><strong>{formatCents(quote.carryCents)}</strong></div>}
+                  </div>
+                )}
                 {p.personalCents > 0 && <div className="muted small">+ {formatCents(p.personalCents)} personal bills this week</div>}
-                {done > 0 && done < due.cents && <div className="muted small">{formatCents(done)} deposited so far</div>}
+                {done > 0 && remaining > 0 && <div className="muted small">{formatCents(done)} deposited so far</div>}
                 {/* Only you can confirm your own deposit; your partner's card just shows their status. */}
-                {due.weeks === 0 && done === 0 ? null
-                  : done >= due.cents && done > 0 ? <span className="pill paid">✓ Deposited</span>
-                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit(due.cents - done)}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
+                {!canDeposit || creditLoading || creditUnavailable ? null
+                  : remaining === 0 ? <span className="pill paid">{quote?.appliedCreditCents ? '✓ Covered by credit and deposits' : done > 0 ? '✓ Deposited' : 'Nothing due'}</span>
+                  : isMe ? <button type="button" className="pill" onClick={() => setDeposit({ amount: remaining, week: plan.weekStart, quote })}>{done > 0 ? 'Confirm the rest' : 'Confirm my deposit'}</button>
                   : <span className="badge person-status">{done > 0 ? 'Partly deposited' : 'Not deposited yet'}</span>}
                 {last && <div className="muted small">Last deposit: {formatCents(last.amount_cents)} · week of {formatShort(last.week_start)}</div>}
               </div>
@@ -178,7 +223,18 @@ export function DashboardView() {
         <span aria-hidden="true">›</span>
       </a>
 
-      {deposit !== null && <DepositSheet amountCents={deposit} weekStart={plan.weekStart} onClose={() => setDeposit(null)} />}
+      {deposit && <DepositSheet amountCents={deposit.amount} weekStart={deposit.week} onClose={() => setDeposit(null)}
+        refresh={depositCreditEnabled ? async () => {
+          const updated = await depositCreditQuotes();
+          const latest = updated[s.userId];
+          if (latest?.periodStart !== deposit.quote?.periodStart || latest?.remainingCents !== deposit.quote?.remainingCents) {
+            setCredit({ state: s, date: today, quotes: updated });
+            setDeposit(null);
+            toast('Your deposit estimate changed. Review the new amount.', 'error');
+            return false;
+          }
+          return true;
+        } : undefined} />}
     </section>
   );
 }
@@ -212,13 +268,16 @@ function RequestCard({ r }: { r: BillRequest }) {
   );
 }
 
-function DepositSheet({ amountCents, weekStart, onClose }: { amountCents: number; weekStart: string; onClose: () => void }) {
+function DepositSheet({ amountCents, weekStart, onClose, refresh }: {
+  amountCents: number; weekStart: string; onClose: () => void; refresh?: () => Promise<boolean>;
+}) {
   const [busy, run] = useBusy();
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const amount = parseDollars(String(new FormData(e.currentTarget).get('amount')));
     if (amount === null) return toast('Enter an amount like 120.50', 'error');
     run(async () => {
+      if (refresh && !(await refresh())) return;
       await addContribution(weekStart, amount);
       onClose();
       toast('Deposit saved');

@@ -8,10 +8,13 @@ import adminSql from '../supabase/admin.sql?raw';
 import paycheckAverageSql from '../supabase/paycheck-average.sql?raw';
 import ownIncomeSql from '../supabase/own-income.sql?raw';
 import customSplitSql from '../supabase/custom-split.sql?raw';
+import payScheduleSql from '../supabase/pay-schedule.sql?raw';
+import depositCreditSql from '../supabase/deposit-credit.sql?raw';
 
 // The bits of Supabase the schema relies on: API roles, auth.users, auth.uid(), default grants.
 const SUPABASE_STUB = `
   create role anon nologin;
+  create role service_role nologin;
   create role authenticated nologin;
   create schema auth;
   create schema extensions;
@@ -84,7 +87,7 @@ async function count(sql: string, params: unknown[] = []) {
 beforeAll(async () => {
   db = await PGlite.create({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
-  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql]) await db.exec(sql);
+  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql, payScheduleSql, depositCreditSql, depositCreditSql]) await db.exec(sql);
 }, 60_000);
 
 describe('normal users', () => {
@@ -308,5 +311,43 @@ describe('custom-split.sql', () => {
     await db.query('select public.leave_household()');
     await as(null);
     expect(await split(h.hid)).toEqual({ split_member: null, split_percent: null, split_proposed_by: null, split_proposed_percent: null });
+  });
+});
+
+describe('deposit credit history', () => {
+  it('captures old calculation inputs without exposing them to clients', async () => {
+    const home = await household('Alex', 'Sam');
+    const id = await addBill(home.ids[0], home.hid);
+    await db.query('update bills set amount_cents = 200000 where id = $1', [id]);
+    await expect(db.query('select public.deposit_credit_inputs($1)', [home.ids[0]])).rejects.toThrow(/permission denied/);
+    await expect(db.query('select * from deposit_credit_private.changes')).rejects.toThrow(/permission denied/);
+
+    await as(null);
+    await db.exec('set role service_role');
+    const [{ data }] = await rows<{ data: { bills: unknown[]; changes: unknown[]; revision: string; members: { user_id: string; created_at: string }[] } }>(
+      'select public.deposit_credit_inputs($1) as data', [home.ids[0]]);
+    expect(data.bills).toContainEqual(expect.objectContaining({ id, amount_cents: 200000 }));
+    expect(data.changes).toContainEqual(expect.objectContaining({
+      source: 'bills', row_id: id, before_row: expect.objectContaining({ id, amount_cents: 100000 }),
+    }));
+    expect(JSON.stringify(data)).not.toContain('invite_code');
+    await as(null);
+    await db.query(`update deposit_credit_private.changes set changed_at = '2026-01-05T00:00:00Z'
+      where household_id = $1 and source = 'bills'`, [home.hid]);
+    await db.exec('set role service_role');
+    const payload = [{ member_id: home.ids[0],
+      member_created_at: data.members.find((member) => member.user_id === home.ids[0])!.created_at, period_start: '2026-01-04',
+      next_period_start: '2026-01-11', carry_cents: 3000 }];
+    const claims = [{ bill_id: id, due_date: '2026-01-04' }];
+    const save = (revision: string, periods = payload) => rows<{ saved: boolean }>(
+      'select public.save_deposit_credit($1, $2, $3, $4, $5, $6) as saved',
+      [home.ids[0], home.hid, revision, '2026-01-11', JSON.stringify(periods), JSON.stringify(claims)],
+    );
+    expect(await save('0')).toEqual([{ saved: false }]);
+    expect(await save(data.revision)).toEqual([{ saved: true }]);
+    expect(await save(data.revision, [{ ...payload[0], carry_cents: 9999 }])).toEqual([{ saved: true }]);
+    const [{ saved }] = await rows<{ saved: unknown[] }>(
+      "select public.deposit_credit_inputs($1)->'settlements' as saved", [home.ids[0]]);
+    expect(saved).toEqual(payload);    await as(null);
   });
 });

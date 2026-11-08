@@ -1,6 +1,6 @@
-import type { ISODate, Member, PayFrequency, Paycheck } from '../types';
-import { addDays, addMonths } from './dates';
-import { dueDates } from './recurrence';
+import type { ISODate, Member, PayFrequency, Paycheck } from '../types.ts';
+import { addDays, addMonths } from './dates.ts';
+import { dueDates } from './recurrence.ts';
 
 /** Paychecks per year for each pay schedule. */
 export const PER_YEAR: Record<PayFrequency, number> = {
