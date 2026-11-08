@@ -13,6 +13,39 @@ const bill = (id: string, amount_cents: number, start_date: string): Bill => ({
 });
 
 describe('deposit credit settlement', () => {
+  it('combines the account balance and paycheck cap with direct credit in Pay as Due', () => {
+    const a = { ...member('a'), pay_amount_cents: 10000 };
+    const b = { ...member('b'), pay_amount_cents: 10000 };
+    const inputs: SettlementInputs = {
+      householdId: 'home', asOf: '2026-10-12T12:00:00Z', rollout: '2026-10-01T10:00:00Z',
+      revision: '1', watermark: null, claims: [], changes: [],
+      households: [{
+        id: 'home', name: 'Home', invite_code: '', weekly_mode: 'due', split_member: null, split_percent: null,
+        split_proposed_by: null, split_proposed_percent: null,
+      }],
+      members: [a, b], paychecks: [], settlements: [],
+      bills: [bill('power', 8000, '2026-10-12'), bill('water', 22000, '2026-10-13')],
+      contributions: [{
+        id: 'c', household_id: 'home', member_id: 'a', amount_cents: 3000, week_start: '2026-10-11',
+      }],
+      payments: [{
+        id: 'p', household_id: 'home', bill_id: 'power', paid_by: 'a',
+        paid_on: '2026-10-12', due_date: '2026-10-12', amount_cents: 8000,
+      }],
+      account_balances: [{
+        id: 'balance', household_id: 'home', member_id: 'a', week_start: '2026-10-11',
+        amount_cents: 4000, spare_cents: 4000, entered_at: '2026-10-12T01:00:00Z',
+      }],
+    };
+    const { members } = calculateSettlements(inputs);
+    expect(members.a).toMatchObject({
+      due: { cents: 10000, creditCents: 2000, limitCents: 10000, shortCents: 3000 },
+      depositedCents: 3000, paidDirectCents: 8000, appliedCreditCents: 7000,
+      remainingCents: 0, carryCents: 1000,
+    });
+    expect(members.b).toMatchObject({ due: { creditCents: 0 }, remainingCents: 10000 });
+  });
+
   it.each(['due', 'smoothed'] as const)('recovers the close-time balance offline in %s mode', (weekly_mode) => {
     const a = member('a');
     const b = member('b');
@@ -26,7 +59,7 @@ describe('deposit credit settlement', () => {
       }],
       members: [{ ...a, pay_amount_cents: 200000 }, b],
       bills: [shared, bill('water', 7000, '2026-10-05'), bill('phone', 15000, '2026-10-12')],
-      contributions: [], paychecks: [], settlements: [],
+      contributions: [], paychecks: [], account_balances: [], settlements: [],
       payments: [{
         id: 'p', household_id: 'home', bill_id: 'repair', paid_by: 'a',
         paid_on: '2026-10-04', due_date: '2026-10-04', amount_cents: 13000,

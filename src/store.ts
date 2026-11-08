@@ -1,10 +1,11 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type {
-  ActivityEntry, Bill, BillRequest, Contribution, Household, Member, Payment, Paycheck,
+  AccountBalance, ActivityEntry, Bill, BillRequest, Contribution, Household, ISODate, Member, Payment, Paycheck,
 } from './types';
-import { todayISO } from './logic/dates';
-import { incomeShares, type Share } from './logic/split';
+import { addDays, formatShort, todayISO } from './logic/dates';
+import { balanceEntry, depositDue, incomeShares, payWindow, type DepositDue, type Share } from './logic/split';
+import { paydays } from './logic/income';
 import { formatCents } from './logic/money';
 import { demoLog, demoState, isDemo, newId } from './demo';
 
@@ -15,6 +16,7 @@ export interface State {
   bills: Bill[];
   payments: Payment[];
   contributions: Contribution[];
+  accountBalances: AccountBalance[];
   paychecks: Paycheck[];
   requests: BillRequest[];
   activity: ActivityEntry[];
@@ -58,12 +60,13 @@ export async function findMyHousehold(userId: string): Promise<string | null> {
 
 /** Load everything for the household. Filtered explicitly: RLS lets admins read every household. */
 export async function load(userId: string, householdId: string): Promise<void> {
-  const [household, members, bills, payments, contributions, paychecks, requests, activity] = await Promise.all([
+  const [household, members, bills, payments, contributions, accountBalances, paychecks, requests, activity] = await Promise.all([
     supabase.from('households').select('*').eq('id', householdId).single(),
     supabase.from('members').select('*').eq('household_id', householdId).order('created_at'),
     supabase.from('bills').select('*').eq('household_id', householdId).order('name'),
     supabase.from('payments').select('*').eq('household_id', householdId),
     supabase.from('contributions').select('*').eq('household_id', householdId).order('week_start', { ascending: false }).order('created_at', { ascending: false }),
+    supabase.from('account_balances').select('*').eq('household_id', householdId).order('entered_at', { ascending: false }),
     supabase.from('paychecks').select('*').eq('household_id', householdId).order('paid_on', { ascending: false }),
     supabase.from('bill_requests').select('*').eq('household_id', householdId).order('created_at', { ascending: false }),
     supabase.from('activity_log').select('id, actor, message, created_at').eq('household_id', householdId).order('created_at', { ascending: false }).limit(200),
@@ -75,6 +78,7 @@ export async function load(userId: string, householdId: string): Promise<void> {
     bills: check(bills) as Bill[],
     payments: check(payments) as Payment[],
     contributions: check(contributions) as Contribution[],
+    accountBalances: check(accountBalances) as AccountBalance[],
     paychecks: check(paychecks) as Paycheck[],
     requests: check(requests) as BillRequest[],
     activity: check(activity) as ActivityEntry[],
@@ -89,10 +93,15 @@ function startRealtime(userId: string, householdId: string) {
   let timer: number | undefined;
   const refresh = () => {
     window.clearTimeout(timer);
-    timer = window.setTimeout(() => load(userId, householdId).catch(console.error), 250);
+    timer = window.setTimeout(() => {
+      if (!channel) return;
+      // shortcut: partner updates wait until the open form closes so a reload can't unmount its row. Upgrade if a form ever needs live data.
+      if (document.querySelector('dialog[open]')) refresh();
+      else load(userId, householdId).catch(console.error);
+    }, 250);
   };
   channel = supabase.channel(`household-${householdId}`);
-  const tables = ['members', 'bills', 'payments', 'contributions', 'paychecks', 'bill_requests', 'activity_log'];
+  const tables = ['members', 'bills', 'payments', 'contributions', 'account_balances', 'paychecks', 'bill_requests', 'activity_log'];
   for (const table of tables) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `household_id=eq.${householdId}` }, refresh);
   }
@@ -113,7 +122,8 @@ export async function stopRealtime() {
 
 async function reload() {
   const s = getState();
-  await load(s.userId, s.household.id);
+  // The write already committed. Failing here would invite a retry that duplicates it; realtime catches the screen up.
+  await load(s.userId, s.household.id).catch(console.error);
 }
 
 // ---------- Derived ----------
@@ -126,6 +136,21 @@ export function shares(): Share[] {
 export function memberName(id: string | null): string {
   if (id === null) return 'Shared account';
   return getState().members.find((m) => m.user_id === id)?.display_name ?? 'Former partner';
+}
+
+/** The home tab's name. Pay as due with a pay window follows the paycheck, not the calendar week. */
+export function homeName(): string {
+  const s = getState();
+  const member = s.members.find((m) => m.user_id === s.userId);
+  return s.household.weekly_mode === 'due' && member && payWindow(member, todayISO()) ? 'This paycheck' : 'This week';
+}
+
+/** Pay as due: the payday a deposit saved under `week` is for. Null when that member isn't paid that week. */
+export function depositPayday(memberId: string, week: ISODate): ISODate | null {
+  const s = getState();
+  const member = s.members.find((m) => m.user_id === memberId);
+  if (s.household.weekly_mode !== 'due' || !member) return null;
+  return paydays(member, week, addDays(week, 6))[0] ?? null;
 }
 
 // ---------- Demo mode ----------
@@ -180,8 +205,10 @@ export async function saveBill(id: string | null, input: BillInput) {
     return local((s) => s.bills.push({ ...input, id: newId(), household_id: s.household.id, owner_id: null, created_at: new Date().toISOString() }),
       (s) => `${me(s)} added ${input.name} (${formatCents(input.amount_cents)}, ${input.recurrence})`);
   }
-  if (id) check(await supabase.from('bills').update(input).eq('id', id));
-  else check(await supabase.from('bills').insert({ ...input, household_id: s.household.id }));
+  if (id) {
+    const rows = check(await supabase.from('bills').update(input).eq('id', id).select('id'));
+    if (!rows.length) throw new Error('That bill was removed');
+  } else check(await supabase.from('bills').insert({ ...input, household_id: s.household.id }));
   await reload();
 }
 
@@ -206,10 +233,33 @@ export async function markPaid(bill: Bill, dueDate: string, amountCents: number,
       amount_cents: amountCents, paid_by: paidBy, paid_on: paidOn,
     }), (s) => `${me(s)} marked ${bill.name} (due ${dueDate}) paid: ${formatCents(amountCents)} by ${memberName(paidBy)}`);
   }
-  check(await supabase.from('payments').insert({
+  const res = await supabase.from('payments').insert({
     household_id: s.household.id, bill_id: bill.id, due_date: dueDate,
     amount_cents: amountCents, paid_by: paidBy, paid_on: paidOn,
-  }));
+  });
+  if (res.error?.code === '23505') throw new Error('This date was already confirmed paid');
+  if (res.error?.code === '23503') throw new Error('That bill was removed');
+  check(res);
+  await reload();
+}
+
+export type PaymentEdit = Pick<Payment, 'amount_cents' | 'paid_on' | 'paid_by'>;
+
+export async function updatePayment(id: string, edit: PaymentEdit) {
+  if (isDemo) {
+    const s = getState();
+    const old = s.payments.find((p) => p.id === id);
+    if (!old) throw new Error('That payment was removed');
+    const billName = s.bills.find((b) => b.id === old.bill_id)?.name;
+    const changes: string[] = [];
+    if (edit.amount_cents !== old.amount_cents) changes.push(`${formatCents(old.amount_cents)} → ${formatCents(edit.amount_cents)}`);
+    if (edit.paid_on !== old.paid_on) changes.push(`paid on ${formatShort(old.paid_on)} → ${formatShort(edit.paid_on)}`);
+    if (edit.paid_by !== old.paid_by) changes.push(`paid from ${memberName(old.paid_by)} → ${memberName(edit.paid_by)}`);
+    return local(() => Object.assign(old, edit),
+      changes.length ? (s) => `${me(s)} edited ${billName} (due ${formatShort(old.due_date)}): ${changes.join(', ')}` : undefined);
+  }
+  const rows = check(await supabase.from('payments').update(edit).eq('id', id).select('id'));
+  if (!rows.length) throw new Error('That payment was removed');
   await reload();
 }
 
@@ -244,6 +294,32 @@ export async function deleteContribution(id: string) {
   }
   check(await supabase.from('contributions').delete().eq('id', id));
   await reload();
+}
+
+/** Save the balance the signed-in partner typed: the one in use, or `week`'s. Returns their deposit with it applied. */
+export async function saveBalance(cents: number, week?: ISODate): Promise<DepositDue> {
+  // The spare money is frozen from this state, so a phone that missed a partner's deposit would keep a wrong credit all period.
+  if (!isDemo) await reload();
+  const s = getState();
+  const memberId = s.userId;
+  const today = todayISO();
+  const member = s.members.find((m) => m.user_id === memberId)!;
+  const entry = balanceEntry(member, cents, today, s.bills, s.payments, shares(), s.contributions, s.accountBalances, week);
+  if (isDemo) {
+    const old = s.accountBalances.find((b) => b.member_id === memberId && b.week_start === entry.week_start);
+    const was = old?.amount_cents;
+    local((s) => {
+      if (old) Object.assign(old, entry);
+      else s.accountBalances.unshift({ ...entry, id: newId(), household_id: s.household.id, member_id: memberId, entered_at: new Date().toISOString() });
+    }, was === cents ? undefined : (s) => (was === undefined
+      ? `${me(s)} entered the bill account balance: ${formatCents(cents)}`
+      : `${me(s)} changed the bill account balance: ${formatCents(was)} → ${formatCents(cents)}`));
+  } else {
+    check(await supabase.from('account_balances').upsert({ household_id: s.household.id, member_id: memberId, ...entry }, { onConflict: 'member_id,week_start' }));
+    await reload();
+  }
+  const now = getState();
+  return depositDue(now.members.find((m) => m.user_id === memberId) ?? member, today, now.household.weekly_mode, now.bills, now.payments, shares(), now.contributions, now.accountBalances);
 }
 
 export async function updateMember(userId: string, patch: Partial<Pick<Member, 'display_name' | 'pay_amount_cents' | 'pay_frequency' | 'income_mode' | 'paycheck_average' | 'payday'>>) {

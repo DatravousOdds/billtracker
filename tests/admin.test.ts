@@ -10,6 +10,8 @@ import ownIncomeSql from '../supabase/own-income.sql?raw';
 import customSplitSql from '../supabase/custom-split.sql?raw';
 import payScheduleSql from '../supabase/pay-schedule.sql?raw';
 import depositCreditSql from '../supabase/deposit-credit.sql?raw';
+import paymentEditsSql from '../supabase/payment-edits.sql?raw';
+import accountBalanceSql from '../supabase/account-balance.sql?raw';
 
 // The bits of Supabase the schema relies on: API roles, auth.users, auth.uid(), default grants.
 const SUPABASE_STUB = `
@@ -87,7 +89,7 @@ async function count(sql: string, params: unknown[] = []) {
 beforeAll(async () => {
   db = await PGlite.create({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
-  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql, payScheduleSql, depositCreditSql, depositCreditSql]) await db.exec(sql);
+  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql, paymentEditsSql, paymentEditsSql, payScheduleSql, accountBalanceSql, accountBalanceSql, depositCreditSql, depositCreditSql]) await db.exec(sql);
 }, 60_000);
 
 describe('normal users', () => {
@@ -314,13 +316,186 @@ describe('custom-split.sql', () => {
   });
 });
 
+describe('payment-edits.sql', () => {
+  /** A $1,000.00 Rent payment due Oct 1, paid Oct 14 by `paidBy`. */
+  async function addPayment(userId: string, hid: string, paidBy: string | null) {
+    const bill = await addBill(userId, hid);
+    const [{ id }] = await rows<{ id: string }>(
+      `insert into payments (household_id, bill_id, due_date, paid_on, amount_cents, paid_by)
+       values ($1, $2, '2026-10-01', '2026-10-14', 100000, $3) returning id`, [hid, bill, paidBy]);
+    return id;
+  }
+
+  const edits = async (hid: string) => {
+    await as(null);
+    return rows<{ actor: string; message: string }>(
+      `select actor, message from activity_log where household_id = $1 and message like '%edited%'`, [hid]);
+  };
+
+  it('logs every changed field under the partner who edited, even on the other partner\'s payment', async () => {
+    const h = await household('Alex', 'Sam');
+    const [alex, sam] = h.ids;
+    const id = await addPayment(alex, h.hid, alex);
+
+    await as(sam);
+    const res = await db.query(`update payments set amount_cents = 125000, paid_on = '2026-10-02', paid_by = $1 where id = $2`, [sam, id]);
+    expect(res.affectedRows).toBe(1);
+    expect(await edits(h.hid)).toEqual([{
+      actor: sam,
+      message: 'Sam edited Rent (due Oct 1): $1,000.00 → $1,250.00, paid on Oct 14 → Oct 2, paid from Alex → Sam',
+    }]);
+  });
+
+  it('lists only the field that changed', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, h.ids[0]);
+
+    await as(h.ids[0]);
+    await db.query(`update payments set paid_on = '2026-10-02' where id = $1`, [id]);
+    expect((await edits(h.hid)).map((e) => e.message)).toEqual(['Alex edited Rent (due Oct 1): paid on Oct 14 → Oct 2']);
+  });
+
+  it('logs nothing when a save changes nothing', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, null);
+
+    await as(h.ids[0]);
+    const res = await db.query(`update payments set amount_cents = 100000, paid_on = '2026-10-14', paid_by = null where id = $1`, [id]);
+    expect(res.affectedRows).toBe(1);
+    expect(await edits(h.hid)).toEqual([]);
+  });
+
+  it('logs a change to and from the shared account', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, h.ids[0]);
+
+    await as(h.ids[0]);
+    await db.query('update payments set paid_by = null where id = $1', [id]);
+    await as(h.ids[0]);
+    await db.query('update payments set paid_by = $1 where id = $2', [h.ids[0], id]);
+    expect((await edits(h.hid)).map((e) => e.message).sort()).toEqual([
+      'Alex edited Rent (due Oct 1): paid from Alex → Shared account',
+      'Alex edited Rent (due Oct 1): paid from Shared account → Alex',
+    ]);
+  });
+
+  it('does not log an edit when deleting the payer\'s account clears paid_by', async () => {
+    const h = await household('Alex', 'Sam');
+    const [alex, sam] = h.ids;
+    const id = await addPayment(alex, h.hid, sam);
+
+    await as(null);
+    await db.query('delete from auth.users where id = $1', [sam]);
+    expect(await count('payments where id = $1 and paid_by is null', [id])).toBe(1);
+    expect(await edits(h.hid)).toEqual([]);
+  });
+
+  it('gives an outsider no way to change a payment or add to the log', async () => {
+    const h = await household('Alex', 'Sam');
+    const outsider = await household('Kim');
+    const id = await addPayment(h.ids[0], h.hid, null);
+
+    await as(outsider.ids[0]);
+    expect((await db.query('update payments set amount_cents = 1 where id = $1', [id])).affectedRows).toBe(0);
+    expect(await count('payments where id = $1 and amount_cents = 100000', [id])).toBe(1);
+    expect(await edits(h.hid)).toEqual([]);
+  });
+
+  it('still logs marking and unmarking', async () => {
+    const h = await household('Alex', 'Sam');
+    const id = await addPayment(h.ids[0], h.hid, null);
+
+    await as(h.ids[1]);
+    await db.query('delete from payments where id = $1', [id]);
+    await as(null);
+    const log = (await rows<{ message: string }>('select message from activity_log where household_id = $1', [h.hid])).map((r) => r.message);
+    expect(log).toContain('Alex marked Rent (due 2026-10-01) paid: $1,000.00 by shared account');
+    expect(log).toContain('Sam unmarked Rent (due 2026-10-01) as paid');
+  });
+});
+
+describe('account-balance.sql', () => {
+  /** Save a balance the way saveBalance's upsert does: entered_at is never sent. */
+  const save = async (hid: string, memberId: string, cents: number) => (await rows<{ entered_at: string }>(
+    `insert into account_balances (household_id, member_id, week_start, amount_cents, spare_cents) values ($1, $2, '2026-11-01', $3, 0)
+     on conflict (member_id, week_start) do update set amount_cents = excluded.amount_cents, spare_cents = excluded.spare_cents
+     returning entered_at::text`, [hid, memberId, cents]))[0].entered_at;
+
+  const logged = async (hid: string) => {
+    await as(null);
+    return (await rows<{ message: string }>(
+      `select message from activity_log where household_id = $1 and message like '%bill account balance%' order by id`, [hid])).map((r) => r.message);
+  };
+
+  it('lets a partner write only their own balance, and both read it', async () => {
+    const h = await household('Alex', 'Sam');
+    const [alex, sam] = h.ids;
+    const outsider = await household('Kim');
+
+    await as(alex);
+    await save(h.hid, alex, 35000);
+    await expect(save(h.hid, sam, 1)).rejects.toThrow(/row-level security/);
+
+    await as(sam);
+    expect(await rows('select amount_cents from account_balances where member_id = $1', [alex])).toHaveLength(1);
+    expect((await db.query('update account_balances set amount_cents = 1 where member_id = $1', [alex])).affectedRows).toBe(0);
+    await as(outsider.ids[0]);
+    expect(await rows('select 1 from account_balances where member_id = $1', [alex])).toEqual([]);
+    expect(await count('account_balances where member_id = $1 and amount_cents = 35000', [alex])).toBe(1);
+  });
+
+  it('keeps entered_at when the same week is saved again', async () => {
+    const h = await household('Alex');
+    await as(h.ids[0]);
+    const first = await save(h.hid, h.ids[0], 35000);
+    expect(await save(h.hid, h.ids[0], 34000)).toBe(first);
+    expect(await count('account_balances where member_id = $1', [h.ids[0]])).toBe(1);
+  });
+
+  it('rejects a negative amount', async () => {
+    const h = await household('Alex');
+    await as(h.ids[0]);
+    await expect(save(h.hid, h.ids[0], -1)).rejects.toThrow(/check constraint/);
+  });
+
+  it('cannot be deleted by a partner', async () => {
+    const h = await household('Alex', 'Sam');
+    await as(h.ids[0]);
+    await save(h.hid, h.ids[0], 35000);
+    await as(h.ids[1]);
+    expect((await db.query('delete from account_balances where member_id = $1', [h.ids[0]])).affectedRows).toBe(0);
+    expect(await count('account_balances where member_id = $1', [h.ids[0]])).toBe(1);
+  });
+
+  it('logs entering and changing a balance, but not saving the same number', async () => {
+    const h = await household('Alex');
+    await as(h.ids[0]);
+    await save(h.hid, h.ids[0], 35000);
+    await save(h.hid, h.ids[0], 35000);
+    await save(h.hid, h.ids[0], 34000);
+    expect(await logged(h.hid)).toEqual([
+      'Alex entered the bill account balance: $350.00',
+      'Alex changed the bill account balance: $350.00 → $340.00',
+    ]);
+  });
+
+  it('removes a partner\'s balances along with them', async () => {
+    const h = await household('Alex', 'Sam');
+    await as(h.ids[1]);
+    await save(h.hid, h.ids[1], 35000);
+    await as(null);
+    await db.query('delete from members where user_id = $1', [h.ids[1]]);
+    expect(await count('account_balances where member_id = $1', [h.ids[1]])).toBe(0);
+  });
+});
+
 describe('deposit credit history', () => {
   it('records exactly one editable deposit and rejects a stale or reused confirmation', async () => {
     const home = await household('Alex', 'Sam');
     const bill = await addBill(home.ids[0], home.hid);
     const id = crypto.randomUUID();
     const sql = `select public.confirm_deposit_credit($1, $2, $3, (now() at time zone 'UTC')::date,
-      '2026-01-07', $4, $5, $6) as result`;
+      '2026-01-07', $4, $5, $6, '2026-01-04') as result`;
     await expect(db.query(sql, [home.ids[0], home.hid, '0', id, 5375, true])).rejects.toThrow(/permission denied/);
 
     const asWorker = async () => {
@@ -337,6 +512,12 @@ describe('deposit credit history', () => {
     await db.query('update bills set amount_cents = 9000 where id = $1', [bill]);
     await asWorker();
     expect(await confirm(old, id)).toEqual([{ result: 'stale' }]);
+    const afterBillEdit = await revision();
+    await as(home.ids[0]);
+    await db.query(`insert into account_balances (household_id, member_id, week_start, amount_cents, spare_cents)
+      values ($1, $2, '2026-01-04', 5000, 3000)`, [home.hid, home.ids[0]]);
+    await asWorker();
+    expect(await confirm(afterBillEdit, id)).toEqual([{ result: 'stale' }]);
     const current = await revision();
     expect(await confirm(current, id)).toEqual([{ result: 'saved' }]);
     expect(await confirm(current, id, 5375, false)).toEqual([{ result: 'saved' }]);
@@ -380,6 +561,7 @@ describe('deposit credit history', () => {
     expect(await save(data.revision, [{ ...payload[0], carry_cents: 9999 }])).toEqual([{ saved: true }]);
     const [{ saved }] = await rows<{ saved: unknown[] }>(
       "select public.deposit_credit_inputs($1)->'settlements' as saved", [home.ids[0]]);
-    expect(saved).toEqual(payload);    await as(null);
+    expect(saved).toEqual(payload);
+    await as(null);
   });
 });

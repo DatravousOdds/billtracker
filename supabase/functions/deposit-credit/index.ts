@@ -63,14 +63,14 @@ function depositQuotes(
   for (const { member } of shares) {
     if (quotes[member.user_id]) continue;
     const deposits = inputs.contributions ?? [];
-    const due = depositDue(member, today, household.weekly_mode, inputs.bills ?? [], inputs.payments ?? [], shares, deposits);
+    const due = depositDue(member, today, household.weekly_mode, inputs.bills ?? [], inputs.payments ?? [], shares, deposits, inputs.account_balances ?? []);
     if (due.weeks === 0) continue;
     const deposited = deposits
-      .filter((c) => c.member_id === member.user_id && c.week_start === week)
+      .filter((c) => c.member_id === member.user_id && c.week_start === due.week)
       .reduce((sum, c) => sum + c.amount_cents, 0);
     quotes[member.user_id] = {
-      ...applyDepositCredit(due.cents, deposited, 0, 0), baseCents: due.cents,
-      periodStart: week, nextPeriodStart: addDays(week, 7), fallback: true,
+      ...applyDepositCredit(due.cents, deposited, 0, 0), due,
+      periodStart: due.week, nextPeriodStart: addDays(week, 7), fallback: true,
     };
   }
   return quotes;
@@ -89,13 +89,14 @@ async function confirm(caller: string, request: Confirmation) {
   const quoteDate = new Date(inputs.asOf).toISOString().slice(0, 10);
   const quote = depositQuotes(inputs, calculateSettlements(inputs).members)[caller];
   const valid = quote?.periodStart === request.periodStart && quote.remainingCents > 0
-    && weekStart(quote.periodStart) === weekStart(quoteDate);
+    && (inputs.households?.[0]?.weekly_mode === 'due' || weekStart(quote.periodStart) === weekStart(quoteDate))
+    && (quote.due.limitCents === null || request.amountCents <= quote.due.limitCents - quote.depositedCents);
   // The RPC checks the receipt before quote validity, so a response lost after
   // commit can be retried with the original ID even after the quote changes.
   const status = await rpc<string>('confirm_deposit_credit', {
     caller, home: inputs.householdId, expected_revision: inputs.revision,
     quote_date: request.quoteDate, quoted_period: request.periodStart,
-    confirmation: request.confirmationId, amount: request.amountCents,
+    confirmation: request.confirmationId, amount: request.amountCents, deposit_week: quote?.due.week ?? null,
     quote_valid: valid && await quoteRevision(caller, inputs) === request.revision && quoteDate === request.quoteDate,
   });
   if (status === 'forbidden') return json({ error: 'No household found' }, 403);

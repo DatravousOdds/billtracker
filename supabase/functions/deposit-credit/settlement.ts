@@ -1,7 +1,7 @@
 import { addDays, weekStart } from '../../../src/logic/dates.ts';
 import { paydays } from '../../../src/logic/income.ts';
-import { applyDepositCredit, depositDue, incomeShares } from '../../../src/logic/split.ts';
-import type { Bill, Contribution, Household, Member, Payment, Paycheck } from '../../../src/types.ts';
+import { applyDepositCredit, depositDue, incomeShares, type DepositDue } from '../../../src/logic/split.ts';
+import type { AccountBalance, Bill, Contribution, Household, Member, Payment, Paycheck } from '../../../src/types.ts';
 
 interface Sources {
   households: Household;
@@ -10,6 +10,7 @@ interface Sources {
   payments: Payment;
   contributions: Contribution;
   paychecks: Paycheck;
+  account_balances: AccountBalance;
 }
 
 type Source = keyof Sources;
@@ -45,7 +46,7 @@ export interface SettlementInputs extends Rows {
   settlements: Settlement[] | null;
 }
 
-const sources = ['households', 'members', 'bills', 'payments', 'contributions', 'paychecks'] as const;
+const sources = ['households', 'members', 'bills', 'payments', 'contributions', 'paychecks', 'account_balances'] as const;
 
 function snapshot(inputs: SettlementInputs, before: string) {
   const date = Date.parse(before);
@@ -80,7 +81,7 @@ export function calculateSettlements(inputs: SettlementInputs) {
   };
   const closed: Settlement[] = [];
   const members: Record<string, ReturnType<typeof applyDepositCredit> & {
-    baseCents: number; periodStart: string; nextPeriodStart: string;
+    due: DepositDue; periodStart: string; nextPeriodStart: string;
   }> = {};
 
   const periods: { member: Member; from: string; next: string }[] = [];
@@ -142,9 +143,9 @@ export function calculateSettlements(inputs: SettlementInputs) {
     const paymentList = state.payments ?? [];
     const shareList = incomeShares(state.members ?? [], state.paychecks ?? [], through, household);
     const target = depositDue(scheduled, from, household.weekly_mode, billList, paymentList, shareList,
-      state.contributions ?? [], true);
+      state.contributions ?? [], state.account_balances ?? [], true);
     const deposits = (state.contributions ?? [])
-      .filter((c) => c.member_id === scheduled.user_id && c.week_start === weekStart(from))
+      .filter((c) => c.member_id === scheduled.user_id && c.week_start === target.week)
       .reduce((sum, c) => sum + c.amount_cents, 0);
     const shared = new Set(billList.filter((b) => b.owner_id === null).map((b) => b.id));
     let paid = 0;
@@ -159,7 +160,7 @@ export function calculateSettlements(inputs: SettlementInputs) {
     const prior = carryByMember.get(key) ?? 0;
     const credit = applyDepositCredit(target.cents, deposits, paid, prior);
     if (!isClosed) {
-      members[scheduled.user_id] = { ...credit, baseCents: target.cents, periodStart: from, nextPeriodStart: next };
+      members[scheduled.user_id] = { ...credit, due: target, periodStart: from, nextPeriodStart: next };
       continue;
     }
     carryByMember.set(key, credit.carryCents);

@@ -1,4 +1,4 @@
--- Run after the existing schema, income, split, and pay-schedule SQL.
+-- Run after the existing schema, income, split, pay-schedule, and account-balance SQL.
 begin;
 set local lock_timeout = '5s';
 
@@ -89,6 +89,7 @@ returns jsonb language sql immutable set search_path = '' as $$
       'paid_by', 'amount_cents']
     when 'contributions' then array['id', 'household_id', 'member_id', 'week_start', 'amount_cents']
     when 'paychecks' then array['id', 'household_id', 'member_id', 'paid_on', 'amount_cents']
+    when 'account_balances' then array['id', 'household_id', 'member_id', 'week_start', 'amount_cents', 'spare_cents']
   end);
 $$;
 
@@ -140,7 +141,7 @@ $$;
 do $$
 declare source text;
 begin
-  foreach source in array array['households', 'members', 'bills', 'payments', 'contributions', 'paychecks']
+  foreach source in array array['households', 'members', 'bills', 'payments', 'contributions', 'paychecks', 'account_balances']
   loop
     execute format('drop trigger if exists deposit_credit_history on public.%I', source);
     execute format('create trigger deposit_credit_history after insert or update or delete on public.%I
@@ -175,6 +176,7 @@ begin
     'payments', (select jsonb_agg(deposit_credit_private.inputs('payments', to_jsonb(r))) from public.payments r where household_id = home),
     'contributions', (select jsonb_agg(deposit_credit_private.inputs('contributions', to_jsonb(r))) from public.contributions r where household_id = home),
     'paychecks', (select jsonb_agg(deposit_credit_private.inputs('paychecks', to_jsonb(r))) from public.paychecks r where household_id = home),
+    'account_balances', (select jsonb_agg(deposit_credit_private.inputs('account_balances', to_jsonb(r))) from public.account_balances r where household_id = home),
     'changes', (select jsonb_agg(to_jsonb(r) - 'household_id' - 'id' - 'transaction_id' order by id desc)
       from deposit_credit_private.changes r where household_id = home),
     'settlements', (select jsonb_agg(to_jsonb(r) - 'household_id')
@@ -238,7 +240,7 @@ $$;
 
 create or replace function public.confirm_deposit_credit(
   caller uuid, home uuid, expected_revision bigint, quote_date date,
-  quoted_period date, confirmation uuid, amount bigint, quote_valid boolean
+  quoted_period date, confirmation uuid, amount bigint, quote_valid boolean, deposit_week date
 )
 returns text language plpgsql security definer set search_path = '' as $$
 declare
@@ -269,6 +271,7 @@ begin
   end if;
 
   if quote_valid is distinct from true
+    or deposit_week is null
     or quote_date is distinct from (clock_timestamp() at time zone 'UTC')::date
     or expected_revision is distinct from deposit_credit_private.revision(home)
   then
@@ -276,7 +279,7 @@ begin
   end if;
 
   insert into public.contributions (household_id, member_id, week_start, amount_cents)
-  values (home, caller, quoted_period - extract(dow from quoted_period)::integer, amount);
+  values (home, caller, deposit_week, amount);
   insert into deposit_credit_private.confirmations (household_id, member_id, confirmation_id, period_start, amount_cents)
   values (home, caller, confirmation, quoted_period, amount);
   return 'saved';
@@ -284,9 +287,9 @@ end;
 $$;
 
 revoke all on function public.deposit_credit_inputs(uuid), public.save_deposit_credit(uuid, uuid, bigint, date, jsonb, jsonb),
-  public.confirm_deposit_credit(uuid, uuid, bigint, date, date, uuid, bigint, boolean)
+  public.confirm_deposit_credit(uuid, uuid, bigint, date, date, uuid, bigint, boolean, date)
   from public, anon, authenticated;
 grant execute on function public.deposit_credit_inputs(uuid), public.save_deposit_credit(uuid, uuid, bigint, date, jsonb, jsonb),
-  public.confirm_deposit_credit(uuid, uuid, bigint, date, date, uuid, bigint, boolean)
+  public.confirm_deposit_credit(uuid, uuid, bigint, date, date, uuid, bigint, boolean, date)
   to service_role;
 commit;

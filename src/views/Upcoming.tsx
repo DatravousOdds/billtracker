@@ -21,14 +21,14 @@ export function UpcomingView() {
   }
 
   const total = (items: Occurrence[], shared: boolean) =>
-    items.filter((o) => (o.bill.owner_id === null) === shared).reduce((sum, o) => sum + o.bill.amount_cents, 0);
+    items.filter((o) => (o.bill.owner_id === null) === shared).reduce((sum, o) => sum + (o.payment?.amount_cents ?? o.bill.amount_cents), 0);
 
   return (
     <section className="view">
       <div className="view-head">
         <div>
           <h1>Upcoming</h1>
-          <p className="muted small">Next {days} days</p>
+          <p className="muted small">Next {days} days · tap a bill to edit it</p>
         </div>
         <div className="seg" role="group" aria-label="Range">
           {[30, 60, 90].map((d) => (

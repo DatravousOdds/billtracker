@@ -1,20 +1,27 @@
 import { useState } from 'react';
-import { formatShort } from '../logic/dates';
+import { formatShort, todayISO } from '../logic/dates';
 import { formatCents } from '../logic/money';
-import { ledger } from '../logic/split';
-import { deleteContribution, memberName, shares, unmarkPaid } from '../store';
+import { ledger, paycheckWeek } from '../logic/split';
+import { deleteContribution, depositPayday, homeName, memberName, shares } from '../store';
+import type { ISODate, Payment } from '../types';
 import { useAppState } from '../ui/hooks';
-import { AsyncButton, pct } from '../ui/parts';
+import { AsyncButton, BalanceSheet, BillAccountLine, PaySheet, You, pct } from '../ui/parts';
 import { toast } from '../ui/toast';
 
-type Tab = 'payments' | 'deposits' | 'activity';
+type Tab = 'payments' | 'deposits' | 'balances' | 'activity';
 let rememberedTab: Tab = 'payments'; // remembered while the app is open
 
 const when = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 export function HistoryView() {
   const s = useAppState();
-  const [tab, setTab] = useState(rememberedTab);
+  const [picked, setTab] = useState(rememberedTab);
+  const payAsDue = s.household.weekly_mode === 'due';
+  const tabs: Tab[] = payAsDue || s.accountBalances.length ? ['payments', 'deposits', 'balances', 'activity'] : ['payments', 'deposits', 'activity'];
+  const tab = tabs.includes(picked) ? picked : 'payments';
+  const [editingWeek, setEditingWeek] = useState<ISODate | null>(null);
+  const [editing, setEditing] = useState<Payment | null>(null);
+  const editingBill = editing && s.bills.find((b) => b.id === editing.bill_id);
   const sh = shares();
   const led = ledger(s.bills, s.payments, s.contributions, sh);
   const billName = (id: string) => s.bills.find((b) => b.id === id)?.name ?? 'Deleted bill';
@@ -24,36 +31,66 @@ export function HistoryView() {
     payments: () => payments.length ? (
       <ul className="list">{payments.map((p) => (
         <li className="occ" key={p.id}>
-          <div className="occ-main">
-            <div className="occ-name">{billName(p.bill_id)}</div>
-            <div className="occ-sub">Paid {formatShort(p.paid_on)} by {memberName(p.paid_by)} · due {formatShort(p.due_date)}</div>
-          </div>
-          <div className="occ-amt">{formatCents(p.amount_cents)}</div>
-          <AsyncButton className="icon-btn" aria-label="Undo payment" onClick={async () => {
-            await unmarkPaid(p.id);
-            toast('Payment removed');
-          }}>↺</AsyncButton>
+          <button type="button" className="occ-tap" aria-haspopup="dialog" onClick={() => setEditing(p)}>
+            <span className="occ-main">
+              <span className="occ-name">{billName(p.bill_id)}</span>
+              <span className="occ-sub">Paid <span className="nowrap">{formatShort(p.paid_on)}</span> by {memberName(p.paid_by)} <span className="nowrap">· due {formatShort(p.due_date)}</span></span>
+            </span>
+            <span className="occ-amt">{formatCents(p.amount_cents)}</span>
+            <span className="chev" aria-hidden="true">›</span>
+          </button>
         </li>
       ))}</ul>
     ) : <p className="empty">No payments yet.</p>,
 
     deposits: () => s.contributions.length ? (
-      <ul className="list">{s.contributions.map((c) => (
-        <li className="occ" key={c.id}>
-          <div className="occ-main">
-            <div className="occ-name">{memberName(c.member_id)}</div>
-            <div className="occ-sub">Week of {formatShort(c.week_start)}</div>
-          </div>
-          <div className="occ-amt">{formatCents(c.amount_cents)}</div>
-          {c.member_id === s.userId && (
-            <AsyncButton className="icon-btn" aria-label="Remove deposit" onClick={async () => {
-              await deleteContribution(c.id);
-              toast('Deposit removed');
-            }}>✕</AsyncButton>
-          )}
-        </li>
-      ))}</ul>
-    ) : <p className="empty">No deposits yet. Confirm yours from This week.</p>,
+      <ul className="list">{s.contributions.map((c) => {
+        const pay = depositPayday(c.member_id, c.week_start);
+        return (
+          <li className="occ" key={c.id}>
+            <div className="occ-main">
+              <div className="occ-name">{memberName(c.member_id)}</div>
+              <div className="occ-sub">{pay ? `For ${formatShort(pay)} pay` : `Week of ${formatShort(c.week_start)}`}</div>
+            </div>
+            <div className="occ-amt">{formatCents(c.amount_cents)}</div>
+            {c.member_id === s.userId && (
+              <AsyncButton className="icon-btn" aria-label="Remove deposit" onClick={async () => {
+                await deleteContribution(c.id);
+                toast('Deposit removed');
+              }}>✕</AsyncButton>
+            )}
+          </li>
+        );
+      })}</ul>
+    ) : <p className="empty">No deposits yet. Confirm yours from {homeName()}.</p>,
+
+    balances: () => s.accountBalances.length ? (
+      <ul className="list">{s.accountBalances.map((b) => {
+        const member = s.members.find((m) => m.user_id === b.member_id);
+        const isMe = b.member_id === s.userId;
+        const date = formatShort(todayISO(new Date(b.entered_at)));
+        const row = <>
+          <span className="occ-main">
+            <span className="occ-name">
+              <span>{memberName(b.member_id)}<You show={isMe} /></span>
+              {payAsDue && member && paycheckWeek(member, todayISO()) === b.week_start && <span className="badge">In use</span>}
+            </span>
+            <span className="occ-sub">Entered {date}</span>
+          </span>
+          <span className="occ-amt">{formatCents(b.amount_cents)}</span>
+        </>;
+        return (
+          <li className="occ" key={b.id}>
+            {isMe ? (
+              <button type="button" className="occ-tap" aria-haspopup="dialog" aria-label={`Edit your ${date} balance, ${formatCents(b.amount_cents)}`} onClick={() => setEditingWeek(b.week_start)}>
+                {row}
+                <span className="chev" aria-hidden="true">›</span>
+              </button>
+            ) : row}
+          </li>
+        );
+      })}</ul>
+    ) : <p className="empty">No balances yet. Enter one from {homeName()}.</p>,
 
     activity: () => s.activity.length ? (
       <ul className="list feed">{s.activity.map((a) => (
@@ -79,17 +116,21 @@ export function HistoryView() {
             </tr>
           ))}</tbody>
         </table>
-        <p className="muted small">"Put in" = bill-account deposits + shared bills paid directly. Fair share uses today's split. Bill account holds {formatCents(led.accountCents)}.</p>
+        <p className="muted small">"Put in" = bill-account deposits + shared bills paid directly. Fair share uses today's split.{!payAsDue && ` Bill account holds ${formatCents(led.accountCents)}.`}</p>
+        {payAsDue && <BillAccountLine enterHref="#/" />}
       </div>
 
       <div className="seg full" role="tablist">
-        {(['payments', 'deposits', 'activity'] as Tab[]).map((t) => (
+        {tabs.map((t) => (
           <button key={t} type="button" role="tab" className={tab === t ? 'on' : ''} onClick={() => setTab(rememberedTab = t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
       <div className="tab-body">{body[tab]()}</div>
+
+      {editing && editingBill && <PaySheet bill={editingBill} dueDate={editing.due_date} payment={editing} onClose={() => setEditing(null)} />}
+      {editingWeek && <BalanceSheet week={editingWeek} onClose={() => setEditingWeek(null)} />}
     </section>
   );
 }

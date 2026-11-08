@@ -6,16 +6,17 @@ A bill tracker for two partners. It splits shared bills by each partner's share 
 
 ## What it does
 
-- **This week:** each partner's amount for the week, bills due, overdue bills, and approvals waiting for you.
+- **This week:** each partner's amount for the week, bills due, overdue bills, and approvals waiting for you. In pay as due with a saved payday, this tab is called *This paycheck* and follows the pay window.
 - **Payment reminders:** any bill that's due today or overdue shows up at the top of This week with a *Confirm paid* button, and counts toward the badge on the tab. The app never moves money; it only records what you confirm (autopay bills are skipped).
 - **Smoothed weekly amounts (default):** shared monthly bills × 12 ÷ 52 every week, plus any one-time bills due that week. Each partner deposits their income share into a shared bill account. You can switch to *pay as due* in Settings.
-- **Payday deposits:** a partner who saves a payday on the Income tab deposits only in weeks they get paid, and that deposit covers every week until their next payday (every 2 weeks: 2 weeks; twice a month: 2–3; monthly: 4–5). Works in both modes: smoothed adds up the weekly amounts, pay as due adds up the unpaid bills due in those weeks plus anything overdue. Without a saved payday, the deposit is weekly.
+- **Payday deposits:** a partner can save a payday on the Income tab. In smoothed, they deposit only in weeks they get paid, and that deposit adds up the weekly amounts for every week until their next payday (every 2 weeks: 2 weeks; twice a month: 2–3; monthly: 4–5). In pay as due, the deposit follows the pay window: from the day after their last payday through their next one, switching on payday, the same deposit the whole window. It adds up the unpaid bills due in the window plus anything overdue, and a missed deposit carries its unpaid bills forward as overdue. Without a saved payday, the deposit is weekly. A deposit is never more than the partner earns: it's capped at one paycheck (a week's earnings when depositing weekly), and any part of their share over that is shown as short on the card.
+- **Bill account balance (pay as due):** before depositing, a partner can type what the shared bill account shows. What's in the account beyond what deposits already hold for unpaid bills comes off their deposit, and a shortfall goes on it. The number is locked when saved, so confirming a bill paid doesn't move it. Each entry stays editable in History, under Balances.
 - **Income:** fixed by default, using the usual paycheck × paychecks per year ÷ 12. Each partner can switch to *log each paycheck*, and their income becomes the average of their latest month's worth of paychecks × paychecks per year ÷ 12 (*Automatic* and *By paycheck* currently calculate the same way). A month's worth depends on how often they're paid: weekly 4, every 2 weeks 2, twice a month 2, monthly 1. Until that many are logged, the usual paycheck is used.
-- **Left after bills:** on This week, each partner sees what's left of their income this week and this month after their share of shared bills and their own personal bills.
+- **Left after bills:** on the home tab, each partner sees what's left of their income this week and this month. In pay as due with a saved payday, the week becomes this paycheck. Either way, pay as due counts their pay minus their deposit, which includes their share of overdue bills, and their personal bills.
 - **Custom split:** instead of splitting by income, either partner can propose their own percentage on the Income tab. It applies once the other partner approves, and going back to the income split needs approval too. A partner leaving resets it.
 - **Personal bills:** all bills start shared. Either partner can request to make a bill personal (or shared again), and the other partner must approve. The database enforces this, so it can't be skipped.
 - **Both phones can edit everything except income:** each partner changes only their own pay and paychecks (the partner's are view-only). Changes appear on the other phone right away.
-- **History:** payments, deposits, a running balance (who has covered more than their share), and an activity log of who changed what.
+- **History:** payments, deposits, account balances, a running balance (who has covered more than their share), and an activity log of who changed what.
 
 ## Try the demo (no setup)
 
@@ -29,7 +30,7 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
 ## Set up for real
 
 1. **Create a Supabase project** (the free tier is fine) at https://supabase.com.
-2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql`, `supabase/own-income.sql`, `supabase/custom-split.sql` and `supabase/pay-schedule.sql` the same way (all safe to re-run; existing projects need them too).
+2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql`, `supabase/own-income.sql`, `supabase/custom-split.sql`, `supabase/pay-schedule.sql`, `supabase/payment-edits.sql` and `supabase/account-balance.sql` the same way (all safe to re-run; existing projects need them too, and the app won't load without `account-balance.sql`, so run it before deploying).
 3. **Auth settings:**
    - **Send email through Resend.** Supabase's built-in email only reaches your own team's addresses and allows just a few emails an hour, so your partner's confirmation email may never arrive. In [Resend](https://resend.com), verify a domain you own (**Domains → Add domain**) and create an API key. Then in Supabase go to **Authentication → Emails → SMTP Settings**, turn on custom SMTP, and enter: host `smtp.resend.com`, port `465`, username `resend`, password = your Resend API key, and a sender address on your verified domain (e.g. `bills@yourdomain.com`).
    - **Redirect URLs.** Under **Authentication → URL Configuration**, set **Site URL** to where the app runs (for now `http://localhost:5173`) and add it, plus any deployed URL, to **Redirect URLs**. The confirmation link sends people back there.
@@ -104,7 +105,9 @@ supabase/admin.sql       admin/support roles: app_roles table, staff RLS policie
 supabase/paycheck-average.sql  members.paycheck_average: Automatic vs By paycheck for logged income
 supabase/own-income.sql        each partner edits only their own income and paychecks (both can view)
 supabase/custom-split.sql      propose_split()/decide_split(): a custom % split both partners approve
-supabase/pay-schedule.sql      members.payday: deposits are asked for only in payday weeks
+supabase/pay-schedule.sql      members.payday: the saved payday that deposits and the pay window follow
+supabase/payment-edits.sql     logs each edit to a payment in Activity, under whoever made it
+supabase/account-balance.sql   account_balances: the bank balance each partner types in (pay as due)
 src/logic/               pure functions (unit-tested): money, dates, recurrence, income, split, ledger
 src/store.ts             loads household data, realtime sync, all reads/writes (+ demo-mode versions)
 src/App.tsx              sign-in routing, app shell and tab navigation
@@ -112,6 +115,7 @@ src/views/               one React component file per screen
 src/ui/                  shared components (Sheet, AsyncButton, bill rows), hooks and toast
 src/demo.ts              sample data for the demo build
 tests/logic.test.ts      npm test
+tests/balance.test.ts    account balance rules for the pay-as-due deposit
 tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) and checks who can read/change what
 ```
 
@@ -125,8 +129,11 @@ tests/admin.test.ts      runs the SQL files in an in-memory Postgres (PGlite) an
 | Bill per month | weekly × 52/12 · biweekly × 26/12 · monthly × 1 · quarterly ÷ 3 · yearly ÷ 12 · one-time counts only in the week it's due |
 | Smoothed weekly | shared bills per month × 12 ÷ 52 + one-time shared bills due this week |
 | Pay as due week | unpaid shared bills due this Sun–Sat week + unpaid shared bills overdue from the last 60 days (autopay bills count as paid) |
-| Payday deposit | your share of each week (smoothed amount, or unpaid bills due in pay as due; overdue bills count once, in the payday week) from your payday week up to the week before your next payday week. Nothing in the weeks between |
-| Left after bills | income − your split of shared bills due − your personal bills due, for this Sun–Sat week and this calendar month. Bills count paid or not; a paid bill counts at the amount paid. Month uses the paychecks dated in that month for someone who logs each paycheck, otherwise monthly income (an average month); week uses monthly × 12 ÷ 52 |
+| Payday deposit (smoothed) | your share of each week (smoothed amount; overdue bills count once, in the payday week) from your payday week up to the week before your next payday week. Nothing in the weeks between. Capped at one paycheck: monthly income × 12 ÷ paychecks per year (÷ 52 when depositing weekly); no cap until income is entered |
+| Pay as due deposit | follows the pay window, from the day after your last payday through your next one. It switches on payday and is the same deposit the whole window. Your share of the shared bills due in the window, plus your share of anything overdue that no earlier deposit funded, counted as of that last payday: paying a bill after that doesn't shrink it. A missed deposit carries its unpaid bills forward as overdue. Without a saved payday, the same for this Sun–Sat week. Capped like a payday deposit |
+| Bill account credit | typed balance − what both partners' deposits still hold for unpaid bills, locked when saved. Your share comes off your deposit (never more than it asks), or your share of a shortfall goes on it. A new payday needs a new balance; correcting an older one changes nothing |
+| Left after bills (smoothed) | income − your split of shared bills due − your personal bills due, for this Sun–Sat week and this calendar month. Bills count paid or not; a paid bill counts at the amount paid. Month uses the paychecks dated in that month for someone who logs each paycheck, otherwise monthly income (an average month); week uses monthly × 12 ÷ 52 |
+| Left after bills (pay as due) | Per paycheck with a saved payday, else this Sun–Sat week: pay − your deposit − your personal bills due in the days that deposit covers or still unpaid from before them. Pay is the check logged in that payday's week or else monthly × 12 ÷ paychecks per year, or monthly × 12 ÷ 52 without a saved payday. A deposit already made for this period counts if it's more than what's asked. Month: the smoothed rule, plus unpaid bills from before the month |
 | Running balance | (deposits + shared bills you paid directly) − your income share of everything both of you put in. The two balances always add up to $0. |
 
 Money is stored as whole cents, so totals never drift. Splits are rounded so the two parts always add up exactly to the total.
