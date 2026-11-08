@@ -1,5 +1,5 @@
-import type { Bill, ISODate, Recurrence } from '../types';
-import { addDays, addMonths, daysBetween, toDate } from './dates';
+import type { Bill, ISODate, Recurrence } from '../types.ts';
+import { addDays, addMonths, daysBetween, toDate } from './dates.ts';
 
 /** How many times a bill comes due in an average month. */
 export const PER_MONTH: Record<Recurrence, number> = {

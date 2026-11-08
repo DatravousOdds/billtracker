@@ -1,4 +1,4 @@
-import type { ISODate } from '../types';
+import type { ISODate } from '../types.ts';
 
 // Calendar-date helpers. Everything works in UTC internally so time zones
 // and daylight-saving changes never shift a due date by a day.
