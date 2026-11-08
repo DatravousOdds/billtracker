@@ -1,5 +1,6 @@
 -- Run after the existing schema, income, split, and pay-schedule SQL.
 begin;
+set local lock_timeout = '5s';
 
 create schema if not exists deposit_credit_private;
 revoke all on schema deposit_credit_private from public, anon, authenticated, service_role;
@@ -12,7 +13,7 @@ insert into deposit_credit_private.rollout (singleton) values (true) on conflict
 
 create table if not exists deposit_credit_private.changes (
   id bigint generated always as identity primary key,
-  household_id uuid not null references public.households (id) on delete cascade,
+  household_id uuid not null,
   changed_at timestamptz not null,
   transaction_id xid8 not null,
   source text not null,
@@ -35,7 +36,7 @@ returns void language sql set search_path = '' as $$
 $$;
 
 create table if not exists deposit_credit_private.settlements (
-  household_id uuid not null references public.households (id) on delete cascade,
+  household_id uuid not null,
   member_id uuid not null,
   member_created_at timestamptz not null,
   period_start date not null,
@@ -46,13 +47,13 @@ create table if not exists deposit_credit_private.settlements (
 
 -- Claims outlive membership so re-entering a payment cannot spend its credit again.
 create table if not exists deposit_credit_private.claims (
-  household_id uuid not null references public.households (id) on delete cascade,
+  household_id uuid not null,
   bill_id uuid not null,
   due_date date not null,
   primary key (household_id, bill_id, due_date)
 );
 create table if not exists deposit_credit_private.checkpoints (
-  household_id uuid primary key references public.households (id) on delete cascade,
+  household_id uuid primary key,
   watermark date not null,
   revision bigint not null
 );
@@ -93,16 +94,16 @@ declare
   new_home uuid := (after_row ->> household_key)::uuid;
   old_id uuid := (before_row ->> id_key)::uuid;
   new_id uuid := (after_row ->> id_key)::uuid;
-  home uuid;
 begin
   if before_row is not distinct from after_row then return null; end if;
-  -- An after-row trigger sees the new household on creation and ignores cascaded deletes.
-  for home in
-    select distinct h from unnest(array[old_home, new_home]) as homes(h)
-    where h is not null order by h
-  loop
-    perform pg_advisory_xact_lock(hashtextextended(home::text, 8624));
-  end loop;
+  -- Journaling must not take a parent row lock after a child row is locked.
+  if tg_table_name = 'households' and tg_op = 'DELETE' then
+    delete from deposit_credit_private.changes where household_id = old_home;
+    delete from deposit_credit_private.settlements where household_id = old_home;
+    delete from deposit_credit_private.claims where household_id = old_home;
+    delete from deposit_credit_private.checkpoints where household_id = old_home;
+    return null;
+  end if;
 
   if old_home is not null and exists (select 1 from public.households where id = old_home) then
     perform deposit_credit_private.append_change(old_home, tg_table_name, old_id, before_row);
@@ -128,12 +129,13 @@ $$;
 
 -- Only the trusted worker can read historical inputs or write settlements.
 create or replace function public.deposit_credit_inputs(caller uuid)
-returns jsonb language plpgsql security definer set search_path = '' as $$
+returns jsonb language plpgsql security definer set search_path = '' set lock_timeout = '5s' as $$
 declare
   home uuid := (select household_id from public.members where user_id = caller);
 begin
   if home is null then return null; end if;
-  perform pg_advisory_xact_lock(hashtextextended(home::text, 8624));
+  -- Freeze journal appends while reading the matching MVCC rows.
+  lock table deposit_credit_private.changes in share mode;
   if not exists (select 1 from public.members where user_id = caller and household_id = home) then
     return null;
   end if;
@@ -165,9 +167,11 @@ drop function if exists public.save_deposit_credit(uuid, uuid, jsonb);
 create or replace function public.save_deposit_credit(
   caller uuid, home uuid, expected_revision bigint, prune_before date, periods jsonb, claims jsonb
 )
-returns boolean language plpgsql security definer set search_path = '' as $$
+returns boolean language plpgsql security definer set search_path = '' set lock_timeout = '5s' as $$
 begin
-  perform pg_advisory_xact_lock(hashtextextended(home::text, 8624));
+  -- This lock must never be followed by a lock on an app row. The household
+  -- delete trigger cleans up the private tables under the journal write lock.
+  lock table deposit_credit_private.changes in share row exclusive mode;
   if not exists (select 1 from public.members where user_id = caller and household_id = home) then
     raise exception 'Not allowed';
   end if;

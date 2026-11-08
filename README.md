@@ -68,7 +68,7 @@ Access is enforced in the database (`is_admin()` / `is_staff()`), so the role on
 
 ### Deposit credit rollout
 
-Run `supabase/deposit-credit.sql` in the SQL Editor after the other schema scripts.
+Rerun `supabase/leave.sql` in the SQL Editor, then run `supabase/deposit-credit.sql` after the other schema scripts.
 Deploy the `deposit-credit` Edge Function with gateway JWT verification disabled
 (the handler checks the caller's token with Supabase Auth before making any database calls).
 Set `VITE_DEPOSIT_CREDIT=true` in the web build environment only after verifying the function

@@ -32,6 +32,9 @@ describe('deposit credit settlement', () => {
         paid_on: '2026-10-04', due_date: '2026-10-04', amount_cents: 13000,
       }],
       changes: [{
+        // A transaction can append again after a concurrent transaction starts.
+        source: 'bills', row_id: shared.id, before_row: null, changed_at: '2026-10-03T00:00:00Z',
+      }, {
         source: 'members', row_id: 'a', before_row: a, changed_at: '2026-10-11T01:00:00Z',
       }],
     };

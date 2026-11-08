@@ -53,7 +53,7 @@ function snapshot(inputs: SettlementInputs, before: string) {
     (inputs[source] ?? []).map((row) => ['user_id' in row ? row.user_id : row.id, row]),
   )]));
   for (const change of inputs.changes ?? []) {
-    if (Date.parse(change.changed_at) < date) break;
+    if (Date.parse(change.changed_at) < date) continue;
     const table = tables[change.source];
     if (change.before_row) table.set(change.row_id, change.before_row);
     else table.delete(change.row_id);
