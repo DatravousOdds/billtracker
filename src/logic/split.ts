@@ -1,8 +1,8 @@
-import type { AccountBalance, Bill, Contribution, Household, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types';
-import { addDays, weekStart } from './dates';
-import { monthlyIncome, paydays, PER_YEAR, type IncomeResult } from './income';
-import { splitByRatio } from './money';
-import { dueDates, monthlyEquivalent } from './recurrence';
+import type { AccountBalance, Bill, Contribution, Household, ISODate, Member, Payment, Paycheck, WeeklyMode } from '../types.ts';
+import { addDays, weekStart } from './dates.ts';
+import { monthlyIncome, paydays, PER_YEAR, type IncomeResult } from './income.ts';
+import { splitByRatio } from './money.ts';
+import { dueDates, monthlyEquivalent } from './recurrence.ts';
 
 export interface Share {
   member: Member;
@@ -171,6 +171,54 @@ export function payWindow(member: Pick<Member, 'payday' | 'pay_frequency'>, date
   return to ? { from, to } : null;
 }
 
+export interface DepositCredit {
+  paidDirectCents: number;
+  priorCreditCents: number;
+  appliedCreditCents: number;
+  depositedCents: number;
+  remainingCents: number;
+  carryCents: number;
+}
+
+/** The pay period containing a payment, using calendar weeks when no schedule applies. */
+export function depositCreditPeriod(member: Member, date: ISODate): { from: ISODate; to: ISODate } {
+  const from = paydays(member, addDays(date, -62), date).at(-1);
+  const next = from && paydays(member, addDays(date, 1), addDays(date, 62))[0];
+  if (from && next) return { from, to: addDays(next, -1) };
+  const start = weekStart(date);
+  return { from: start, to: addDays(start, 6) };
+}
+
+export function directDepositPayments(
+  memberId: string,
+  bills: Bill[],
+  payments: Payment[],
+  from: ISODate,
+  through: ISODate,
+): number {
+  const shared = new Set(bills.filter((bill) => bill.owner_id === null).map((bill) => bill.id));
+  return payments
+    .filter((p) => p.paid_by === memberId && p.paid_on >= from && p.paid_on <= through && shared.has(p.bill_id))
+    .reduce((sum, p) => sum + p.amount_cents, 0);
+}
+
+/** Split an open period's available credit between this deposit and the next period. */
+export function applyDepositCredit(
+  targetCents: number,
+  depositedCents: number,
+  paidDirectCents: number,
+  priorCreditCents: number,
+): DepositCredit {
+  const outstanding = Math.max(0, targetCents - depositedCents);
+  const available = paidDirectCents + priorCreditCents;
+  const appliedCreditCents = Math.min(outstanding, available);
+  return {
+    paidDirectCents, priorCreditCents, appliedCreditCents, depositedCents,
+    remainingCents: outstanding - appliedCreditCents,
+    carryCents: available - appliedCreditCents,
+  };
+}
+
 export interface DepositDue {
   cents: number;
   /** How many weeks of their share this deposit covers (smoothed: 0 in a week without a payday). */
@@ -225,10 +273,12 @@ const shareOf = (member: Member, shares: Share[], cents: number) => {
 };
 
 /** Shared bills still to be paid. An autopay bill whose date has passed counts as paid; it never gets a payment row. */
-const openCents = (bills: Bill[], paid: Payment[], from: ISODate, to: ISODate, now: ISODate) =>
+const openCents = (bills: Bill[], paid: Payment[], from: ISODate, to: ISODate, now: ISODate, retainDirectObligations = false) =>
   occurrences(bills, paid, from, to)
-    .filter((o) => o.bill.owner_id === null && !o.payment && !(o.bill.autopay && o.date <= now))
-    .reduce((s, o) => s + o.bill.amount_cents, 0);
+    .filter((o) => o.bill.owner_id === null && (o.payment
+      ? retainDirectObligations && o.payment.paid_by !== null
+      : !(o.bill.autopay && o.date <= now)))
+    .reduce((s, o) => s + (o.payment?.amount_cents ?? o.bill.amount_cents), 0);
 
 /**
  * Walks a partner's periods oldest first. Each deposit funds what its period asked for plus anything
@@ -257,14 +307,16 @@ function funding(member: Member, now: ISODate, through: ISODate, bills: Bill[], 
 }
 
 /** Pay as due: what `period` asks for. Payments after payday are ignored, so paying a bill doesn't shrink the deposit. */
-function payAsDue(member: Member, period: Period, bills: Bill[], payments: Payment[], shares: Share[], contributions: Contribution[], balances: AccountBalance[]) {
+function payAsDue(member: Member, period: Period, bills: Bill[], payments: Payment[], shares: Share[], contributions: Contribution[], balances: AccountBalance[], retainDirectObligations: boolean) {
   const { pay, from, to } = period;
-  const paid = payments.filter((p) => p.paid_on <= pay);
+  // Personal payments remain obligations in their due window, but never reappear as overdue.
+  const paid = payments.filter((p) => p.paid_on <= pay || (retainDirectObligations && p.paid_by !== null));
   const before = addDays(from, -1);
   const overdueCents = funding(member, before, before, bills, paid, shares, contributions).owedCents;
   const weekCents: number[] = [];
   for (let d = from; d <= to; d = addDays(d, 7)) {
-    weekCents.push(shareOf(member, shares, openCents(bills, paid, d, addDays(d, 6) < to ? addDays(d, 6) : to, before)));
+    const end = addDays(d, 6) < to ? addDays(d, 6) : to;
+    weekCents.push(shareOf(member, shares, openCents(bills, paid, d, end, before, retainDirectObligations)));
   }
   const asked = overdueCents + weekCents.reduce((s, c) => s + c, 0);
   const entry = balances.find((b) => b.member_id === member.user_id && b.week_start === weekStart(pay));
@@ -316,6 +368,7 @@ export function depositDue(
   shares: Share[],
   contributions: Contribution[],
   balances: AccountBalance[] = [],
+  retainDirectObligations = false,
 ): DepositDue {
   // Overdue bills belong to the first week only, or a multi-week deposit would count them again.
   const share = (d: ISODate, overdue = true) =>
@@ -329,7 +382,7 @@ export function depositDue(
     return { ...plan, cents, limitCents, shortCents: plan.cents - cents };
   };
   if (mode === 'due') {
-    return capped(payAsDue(member, currentPeriod(member, date), bills, payments, shares, contributions, balances), payWindow(member, date) ? PER_YEAR[member.pay_frequency] : 52);
+    return capped(payAsDue(member, currentPeriod(member, date), bills, payments, shares, contributions, balances, retainDirectObligations), payWindow(member, date) ? PER_YEAR[member.pay_frequency] : 52);
   }
   const noBalance = { creditCents: 0, spareCents: 0, balanceCents: null, week: start };
   const cents = share(start);

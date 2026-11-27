@@ -11,6 +11,7 @@ import type { Bill, ISODate, Payment, Recurrence } from '../types';
 import { useBusy } from './hooks';
 import { confirmSheet, Sheet } from './Sheet';
 import { toast } from './toast';
+import { depositCreditEnabled } from '../supabase';
 
 const CATEGORIES = ['Housing', 'Utilities', 'Insurance', 'Transportation', 'Phone & Internet', 'Subscriptions', 'Debt', 'Childcare', 'Groceries', 'Medical', 'Other'];
 
@@ -263,7 +264,7 @@ export function BalanceSheet({ week, onClose }: { week?: ISODate; onClose: () =>
     run(async () => {
       const after = await saveBalance(cents, week);
       onClose();
-      toast(current ? `Balance saved. Your deposit is now ${formatCents(after.cents)}` : 'Balance saved');
+      toast(current && !depositCreditEnabled ? `Balance saved. Your deposit is now ${formatCents(after.cents)}` : 'Balance saved');
     });
   };
 
