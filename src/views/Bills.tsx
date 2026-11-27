@@ -5,11 +5,13 @@ import { groupByCategory, monthlyEquivalent, nextDue, RECURRENCE_LABEL, sortByNe
 import type { Bill } from '../types';
 import { useAppState } from '../ui/hooks';
 import { BillSheet } from '../ui/parts';
+import { BillCalendar } from './BillCalendar';
 
 export function BillsView() {
   const s = useAppState();
   // null = adding a new bill
   const [editing, setEditing] = useState<{ bill: Bill | null } | null>(null);
+  const [view, setView] = useState<'list' | 'calendar'>('list');
   const [desc, setDesc] = useState(false);
   const today = todayISO();
   const bills = sortByNextDue(s.bills, today, desc);
@@ -58,28 +60,37 @@ export function BillsView() {
           <p className="muted small">Shared bills average {formatCents(Math.round(monthlyShared))}/month</p>
         </div>
         <div className="inline">
-          <button type="button" className="btn ghost" onClick={() => setDesc(!desc)}
+          {view === 'list' && <button type="button" className="btn ghost" onClick={() => setDesc(!desc)}
             aria-label={`Due date, ${desc ? 'latest' : 'soonest'} first`}>
             Due date {desc ? '↓' : '↑'}
-          </button>
+          </button>}
           <button type="button" className="btn primary" onClick={() => setEditing({ bill: null })}>+ Add bill</button>
         </div>
       </div>
 
-      <h2 className="section-title">Shared · split by income</h2>
-      {shared.length ? grouped(shared) : <p className="empty">No shared bills yet. Add rent, utilities, and so on.</p>}
+      <div className="seg full" role="group" aria-label="Bills view">
+        <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}>List</button>
+        <button type="button" className={view === 'calendar' ? 'on' : ''} aria-pressed={view === 'calendar'} onClick={() => setView('calendar')}>Calendar</button>
+      </div>
 
-      {personalByOwner.map((g) => (
-        <Fragment key={g.m.user_id}>
-          <h2 className="section-title">{g.m.display_name}'s personal bills</h2>
-          {grouped(g.list)}
-        </Fragment>
-      ))}
-
-      {paused.length > 0 && (
+      {view === 'calendar' ? <BillCalendar bills={s.bills} payments={s.payments} today={today} /> : (
         <>
-          <h2 className="section-title muted">Paused</h2>
-          {grouped(paused, true)}
+          <h2 className="section-title">Shared · split by income</h2>
+          {shared.length ? grouped(shared) : <p className="empty">No shared bills yet. Add rent, utilities, and so on.</p>}
+
+          {personalByOwner.map((g) => (
+            <Fragment key={g.m.user_id}>
+              <h2 className="section-title">{g.m.display_name}'s personal bills</h2>
+              {grouped(g.list)}
+            </Fragment>
+          ))}
+
+          {paused.length > 0 && (
+            <>
+              <h2 className="section-title muted">Paused</h2>
+              {grouped(paused, true)}
+            </>
+          )}
         </>
       )}
 
