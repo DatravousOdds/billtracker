@@ -16,6 +16,7 @@ A bill tracker for two partners. It splits shared bills by each partner's share 
 - **Custom split:** instead of splitting by income, either partner can propose their own percentage on the Income tab. It applies once the other partner approves, and going back to the income split needs approval too. A partner leaving resets it.
 - **Personal bills:** all bills start shared. Either partner can request to make a bill personal (or shared again), and the other partner must approve. The database enforces this, so it can't be skipped.
 - **Both phones can edit everything except income:** each partner changes only their own pay and paychecks (the partner's are view-only). Changes appear on the other phone right away.
+- **Reports:** recorded bills paid by week, month, or year, with category and bill breakdowns, partner contributions, and monthly money left after tracked bills. Estimated income is labeled.
 - **History:** payments, deposits, account balances, a running balance (who has covered more than their share), and an activity log of who changed what.
 
 ## Try the demo (no setup)
@@ -31,6 +32,7 @@ The demo uses sample data in memory. Use the purple bar to switch between Alex's
 
 1. **Create a Supabase project** (the free tier is fine) at https://supabase.com.
 2. **Create the database:** in the Supabase dashboard, open **SQL Editor → New query**, paste the whole contents of `supabase/schema.sql`, and click **Run**. Then run `supabase/paycheck-average.sql`, `supabase/own-income.sql`, `supabase/custom-split.sql`, `supabase/pay-schedule.sql`, `supabase/payment-edits.sql` and `supabase/account-balance.sql` the same way (all safe to re-run; existing projects need them too, and the app won't load without `account-balance.sql`, so run it before deploying).
+   Run `supabase/reports.sql` in SQL Editor before deploying Reports, including on existing projects. The script is safe to rerun.
 3. **Auth settings:**
    - **Send email through Resend.** Supabase's built-in email only reaches your own team's addresses and allows just a few emails an hour, so your partner's confirmation email may never arrive. In [Resend](https://resend.com), verify a domain you own (**Domains → Add domain**) and create an API key. Then in Supabase go to **Authentication → Emails → SMTP Settings**, turn on custom SMTP, and enter: host `smtp.resend.com`, port `465`, username `resend`, password = your Resend API key, and a sender address on your verified domain (e.g. `bills@yourdomain.com`).
    - **Redirect URLs.** Under **Authentication → URL Configuration**, set **Site URL** to where the app runs (for now `http://localhost:5173`) and add it, plus any deployed URL, to **Redirect URLs**. The confirmation link sends people back there.

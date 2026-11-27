@@ -13,6 +13,7 @@ import { BillsView } from './views/Bills';
 import { DashboardView } from './views/Dashboard';
 import { HistoryView } from './views/History';
 import { IncomeView } from './views/Income';
+import { ReportsView } from './views/Reports';
 import { SettingsView } from './views/Settings';
 import { SetupView } from './views/Setup';
 import { UpcomingView } from './views/Upcoming';
@@ -23,6 +24,7 @@ const ROUTES: Record<string, { label: string; icon: string; View: () => ReactNod
   upcoming: { label: 'Upcoming', icon: '▦', View: UpcomingView, nav: true },
   income: { label: 'Income', icon: '$', View: IncomeView, nav: true },
   history: { label: 'History', icon: '↺', View: HistoryView, nav: true },
+  reports: { label: 'Reports', icon: '▥', View: ReportsView, nav: true },
   settings: { label: 'Settings', icon: '⚙', View: SettingsView, nav: false },
 };
 

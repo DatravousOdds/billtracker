@@ -12,6 +12,7 @@ import payScheduleSql from '../supabase/pay-schedule.sql?raw';
 import depositCreditSql from '../supabase/deposit-credit.sql?raw';
 import paymentEditsSql from '../supabase/payment-edits.sql?raw';
 import accountBalanceSql from '../supabase/account-balance.sql?raw';
+import reportsSql from '../supabase/reports.sql?raw';
 
 // The bits of Supabase the schema relies on: API roles, auth.users, auth.uid(), default grants.
 const SUPABASE_STUB = `
@@ -89,7 +90,7 @@ async function count(sql: string, params: unknown[] = []) {
 beforeAll(async () => {
   db = await PGlite.create({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
-  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql, paymentEditsSql, paymentEditsSql, payScheduleSql, accountBalanceSql, accountBalanceSql, depositCreditSql, depositCreditSql]) await db.exec(sql);
+  for (const sql of [schemaSql, leaveSql, adminSql, paycheckAverageSql, paycheckAverageSql, ownIncomeSql, ownIncomeSql, customSplitSql, customSplitSql, paymentEditsSql, paymentEditsSql, payScheduleSql, accountBalanceSql, accountBalanceSql, depositCreditSql, depositCreditSql, reportsSql, reportsSql]) await db.exec(sql);
 }, 60_000);
 
 describe('normal users', () => {
@@ -563,5 +564,65 @@ describe('deposit credit history', () => {
       "select public.deposit_credit_inputs($1)->'settlements' as saved", [home.ids[0]]);
     expect(saved).toEqual(payload);
     await as(null);
+  });
+});
+
+describe('reports.sql', () => {
+  it('totals by payment date across pages and limits reads to the signed-in household', async () => {
+    const home = await household('Reports Alex', 'Reports Sam');
+    const away = await household('Reports Kim');
+    const billId = await addBill(home.ids[0], home.hid, 'Electric');
+    await db.query(`
+      insert into public.payments (household_id, bill_id, due_date, paid_on, paid_by, amount_cents)
+      select $1, $2, '2026-01-01'::date + n, '2026-11-01', $3, 100
+      from generate_series(1, 64) as n
+    `, [home.hid, billId, home.ids[0]]);
+    await addDeposit(home.ids[0], home.hid);
+
+    const summarySql = `select public.report_summary($1, '2026-11-01', '2026-11-30',
+      '2026-10-01', '2026-10-31', '2026-11-01', '2026-11-30', '2026-11-30') as report`;
+    const pageSql = `select * from public.report_payments($1, '2026-11-01', '2026-11-30',
+      'other', $2, $3, $4)`;
+    const [{ report }] = await rows(summarySql, [home.hid]);
+    expect(report).toMatchObject({
+      billTotals: [{ id: billId, count: 64, cents: 6400 }],
+      periodDirect: [{ memberId: home.ids[0], cents: 6400 }],
+      monthlyContributions: [{ month: '2026-11-01', memberId: home.ids[0], cents: 6400 }],
+      periodDeposits: [],
+    });
+    const first = await rows<{ id: string; paidOn: string }>(pageSql, [home.hid, billId, null, null]);
+    const second = await rows<{ id: string }>(pageSql, [home.hid, billId, first[49].paidOn, first[49].id]);
+    expect(first).toHaveLength(51);
+    expect(second).toHaveLength(14);
+    expect(second[0].id).toBe(first[50].id);
+    expect(new Set([...first.slice(0, 50), ...second].map(({ id }) => id)).size).toBe(64);
+    await as(away.ids[0]);
+    expect(await rows(summarySql, [home.hid])).toEqual([{ report: null }]);
+    expect(await rows(pageSql, [home.hid, billId, null, null])).toEqual([]);
+  });
+
+  it('attributes personal payments to the recorded payer and excludes shared-account outflows', async () => {
+    const home = await household('Reports Pat', 'Reports Lee');
+    const bill = await addBill(home.ids[0], home.hid, 'Personal utilities');
+    const [{ id: requestId }] = await rows<{ id: string }>(`
+      insert into public.bill_requests (household_id, bill_id, kind, owner_id, requested_by)
+      values ($1, $2, 'make_personal', $3, $3) returning id
+    `, [home.hid, bill, home.ids[0]]);
+    await as(home.ids[1]);
+    await db.query('select public.decide_request($1, $2)', [requestId, 'approved']);
+    await as(home.ids[0]);
+    await db.query(`
+      insert into public.payments (household_id, bill_id, due_date, paid_on, paid_by, amount_cents)
+      values ($1, $2, '2026-10-01', '2026-11-01', $3, 2000),
+             ($1, $2, '2026-11-01', '2026-11-10', null, 1200)
+    `, [home.hid, bill, home.ids[1]]);
+    const [{ report }] = await rows(`select public.report_summary($1, '2026-11-01', '2026-11-30',
+      '2026-10-01', '2026-10-31', '2026-11-01', '2026-11-30', '2026-11-30') as report`, [home.hid]);
+    expect(report).toMatchObject({
+      billTotals: [{ id: bill, cents: 3200 }],
+      monthDirect: [],
+      monthPersonal: [{ memberId: home.ids[1], cents: 2000 }],
+      paidOccurrences: [{ bill_id: bill, due_date: '2026-11-01' }],
+    });
   });
 });
